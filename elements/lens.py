@@ -1,4 +1,7 @@
 import numpy as np
+from typing import Union, Optional
+
+from elements.surfaces import Surface
 
 class Lens:
     def __init__(self, surfaces, thicknesses=None):
@@ -118,3 +121,22 @@ class Lens:
             return focal_point_z - self.surfaces[0].vertex[2]  # Assuming first surface is at z=0
         else:
             return None  # Unable to estimate focal length
+
+class CircularLens:
+
+    def __init__(self, diameter : float, axialthickness : Union[list[float], float], surfaces : list[Surface], coatings : Optional[Union[np.array, list, float]] = None):
+        
+        # Lens diameter in mm
+        self.d = diameter
+        
+        # Lens thickness(es) along optical axis - thickes part of a convex lens, thinest part of a concave lens
+        if type(axialthickness) != list:
+            self.t = [axialthickness]
+        else:
+            self.t = axialthickness
+
+        # Lens surface objects - two for a single element lens, three for a two element lens, etc.
+        self.s = surfaces
+
+        # Lens surface optical coatings
+        self.c = coatings

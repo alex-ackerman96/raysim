@@ -1,6 +1,10 @@
 import numpy as np
 from scipy.optimize import root_scalar
 
+class Surface:
+    def __init__(self, center, radius, n1, n2, diameter):
+        pass
+
 class SphericalSurface:
     def __init__(self, center, radius, n1, n2, diameter):
         self.center = np.array(center)
