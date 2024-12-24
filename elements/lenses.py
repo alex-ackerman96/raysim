@@ -1,7 +1,7 @@
 import numpy as np
 from typing import Union, Optional
 
-from elements.surfaces import Surface
+from elements import surfaces
 
 class Lens:
     def __init__(self, surfaces, thicknesses=None):
@@ -124,7 +124,7 @@ class Lens:
 
 class CircularLens:
 
-    def __init__(self, diameter : float, axialthickness : Union[list[float], float], surfaces : list[Surface], coatings : Optional[Union[np.array, list, float]] = None):
+    def __init__(self, diameter : float, axialthickness : Union[list[float], float], surfaces : Union[list[surfaces.Surface], list[str]], coatings : Optional[Union[np.array, list, float]] = None):
         
         # Lens diameter in mm
         self.d = diameter
@@ -140,3 +140,40 @@ class CircularLens:
 
         # Lens surface optical coatings
         self.c = coatings
+
+    def trace(self, ray):
+        """
+        Trace a ray through all surfaces of the lens
+        
+        Parameters:
+        ray (Ray): The input ray to be traced through the lens.
+        
+        Returns:
+        Ray: The output ray after passing through all surfaces, or None if the ray doesn't make it through.
+        """
+        current_ray = ray
+
+        for i, surface in enumerate(self.s):
+            # Find intersection with current surface
+            intersection, normal = surface.intersect(current_ray)
+            
+            if intersection is None:
+                return None  # Ray missed the surface or had total internal reflection
+            
+            # Move the ray to the intersection point
+            current_ray.origin = intersection
+            
+            # Refract the ray
+            n1, n2 = surface.n1, surface.n2
+            refracted_direction = self.refract(current_ray.direction, normal, n1, n2)
+            
+            if refracted_direction is None:
+                return None  # Total internal reflection
+            
+            current_ray.direction = refracted_direction
+            
+            # Propagate the ray to the next surface if it's not the last one
+            if i < len(self.surfaces) - 1:
+                current_ray.propagate(self.thicknesses[i])
+
+        return current_ray

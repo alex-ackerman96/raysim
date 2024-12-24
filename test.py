@@ -1,6 +1,6 @@
 from elements.surfaces import SphericalSurface
 from elements.surfaces import AsphericSurface
-from elements.lens import Lens
+from elements.lenses import Lens
 from rays.ray import Ray
 
 # import numpy as np
@@ -74,7 +74,7 @@ from rays.ray import Ray
 import numpy as np
 import matplotlib.pyplot as plt
 from elements.surfaces import SphericalSurface
-from elements.lens import Lens
+from elements.lenses import Lens
 from rays.ray import Ray
 
 # Create surfaces
@@ -96,20 +96,30 @@ plt.figure(figsize=(12, 6))
 # Plot input ray
 z_in = np.linspace(-100, 0, 100)
 y_in = input_ray.origin[1] + input_ray.direction[1] * (z_in - input_ray.origin[2]) / input_ray.direction[2]
-# plt.plot(z_in, y_in, 'r--', label='Input Ray')
+plt.plot(z_in, y_in, 'r--', label='Input Ray')
 
 # Plot output ray
 z_out = np.linspace(5, 100, 100)
 y_out = output_ray.origin[1] + output_ray.direction[1] * (z_out - output_ray.origin[2]) / output_ray.direction[2]
-# plt.plot(z_out, y_out, 'r-', label='Output Ray')
+plt.plot(z_out, y_out, 'r-', label='Output Ray')
 
-# Plot lens surfaces
-for surface in lens.surfaces:
-    z = surface.center[2]
-    y = np.linspace(-surface.diameter/2, surface.diameter/2, 100)
-    x = np.sqrt(surface.radius**2 - y**2) * np.sign(surface.radius) + z
-    plt.plot(x, y, 'b-', alpha=0.5)
-    # plt.plot([z, z], [-surface.diameter/2, surface.diameter/2], 'b-', alpha=0.5)
+# # Plot lens surfaces
+# for surface in lens.surfaces:
+#     z = surface.center[2]
+#     y = np.linspace(-surface.diameter/2, surface.diameter/2, 100)
+#     x = np.sqrt(surface.radius**2 - y**2) * np.sign(surface.radius) + z
+#     plt.plot(x, y, 'b-', alpha=0.5)
+#     # plt.plot([z, z], [-surface.diameter/2, surface.diameter/2], 'b-', alpha=0.5)
+
+y = np.linspace(-surface1.diameter / 2, surface1.diameter / 2, 100)
+z1 = np.sqrt(np.maximum(0, surface1.radius**2 - y**2)) * np.sign(surface1.radius) + surface1.center[2]
+z2 = np.sqrt(np.maximum(0, surface2.radius**2 - y**2)) * np.sign(surface2.radius) + surface2.center[2]
+
+# Plot the surfaces and fill the region between them
+plt.figure(figsize=(8, 6))
+plt.plot(z1, y, 'b-', alpha=0.5, label='Surface 1')
+plt.plot(z2, y, 'b-', alpha=0.5, label='Surface 2')
+plt.fill_betweenx(y, z1, z2, color='blue', alpha=0.2)
 
 plt.xlim(-110, 110)  # Z-axis range (ray propagation direction)
 plt.ylim(-20, 20)    # Y-axis range (cross-section height)

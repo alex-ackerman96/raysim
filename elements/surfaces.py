@@ -44,7 +44,6 @@ class SphericalSurface:
         normal = (intersection - self.center) / self.radius
         return intersection, normal
 
-
 class AsphericSurface:
     def __init__(self, vertex, radius, conic, aspheric_coeffs, n1, n2, diameter):
         self.vertex = np.array(vertex)
