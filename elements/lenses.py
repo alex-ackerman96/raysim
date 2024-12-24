@@ -124,8 +124,11 @@ class Lens:
 
 class CircularLens:
 
-    def __init__(self, diameter : float, axialthickness : Union[list[float], float], surfaces : Union[list[surfaces.Surface], list[str]], coatings : Optional[Union[np.array, list, float]] = None):
-        
+    def __init__(self, origin: Union[float, np.array, list[float]], diameter : float, axialthickness : Union[list[float], float], surfaces : Union[list[surfaces.Surface], list[str]], materials: list[str] = None, coatings : Optional[Union[np.array, list, float]] = None, *args, **kwargs):
+
+        # Lens origin in mm
+        self.o = origin
+
         # Lens diameter in mm
         self.d = diameter
         
@@ -136,7 +139,12 @@ class CircularLens:
             self.t = axialthickness
 
         # Lens surface objects - two for a single element lens, three for a two element lens, etc.
-        self.s = surfaces
+        if all(isinstance(element, (surfaces.Surface)) for element in surfaces):
+            self.s = surfaces
+        elif all(isinstance(element, str) for element in surfaces):
+            pass
+        else:
+            raise TypeError("All elements in surfaces must be of type 'Surface' or type 'str'")
 
         # Lens surface optical coatings
         self.c = coatings
@@ -163,6 +171,7 @@ class CircularLens:
             # Move the ray to the intersection point
             current_ray.origin = intersection
             
+            wavelegnth = current_ray.wavelength
             # Refract the ray
             n1, n2 = surface.n1, surface.n2
             refracted_direction = self.refract(current_ray.direction, normal, n1, n2)
@@ -177,3 +186,27 @@ class CircularLens:
                 current_ray.propagate(self.thicknesses[i])
 
         return current_ray
+    
+    @staticmethod
+    def refract(incident, normal, n1, n2):
+        """
+        Apply Snell's law to refract a ray.
+        
+        Parameters:
+        incident (np.array): The incident ray direction.
+        normal (np.array): The surface normal at the point of incidence.
+        n1 (float): Refractive index of the medium the ray is coming from.
+        n2 (float): Refractive index of the medium the ray is entering.
+        
+        Returns:
+        np.array: The refracted ray direction, or None if total internal reflection occurs.
+        """
+        cos_theta1 = -np.dot(normal, incident)
+        sin_theta1 = np.sqrt(1 - cos_theta1**2)
+        sin_theta2 = n1 / n2 * sin_theta1
+        
+        if sin_theta2 > 1:
+            return None  # Total internal reflection
+        
+        cos_theta2 = np.sqrt(1 - sin_theta2**2)
+        return n1 / n2 * incident + (n1 / n2 * cos_theta1 - cos_theta2) * normal

@@ -2,16 +2,16 @@ import numpy as np
 from scipy.optimize import root_scalar
 
 class Surface:
-    def __init__(self, center, radius, n1, n2, diameter):
-        pass
-
-class SphericalSurface:
-    def __init__(self, center, radius, n1, n2, diameter):
+    def __init__(self, center, radius, material1, material2, diameter):
         self.center = np.array(center)
         self.radius = radius
-        self.n1 = n1  # Refractive index before surface
-        self.n2 = n2  # Refractive index after surface
+        self.mat1 = material1  # material before surface
+        self.mat2 = material2  # material after surface
         self.diameter = diameter  # Fixed diameter of the lens surface
+
+class SphericalSurface(Surface):
+    def __init__(self, center, radius, material1, material2, diameter):
+        super().__init__(center, radius, material1, material2, diameter)
 
     @property
     def vertex(self):
