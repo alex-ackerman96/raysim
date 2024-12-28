@@ -142,7 +142,13 @@ class CircularLens:
         if all(isinstance(element, (surfaces.Surface)) for element in surfaces):
             self.s = surfaces
         elif all(isinstance(element, str) for element in surfaces):
-            pass
+            for surface in surfaces:
+                if surface == "convex-spherical":
+                    self.s.append(surfaces.SphericalSurface(origin = self.o, center = [0, 0, 0], radius = self.d/2, material = materials[0]))
+                elif surface == "concave-spherical":
+                    self.s.append(surfaces.SphericalSurface(origin = self.o, center = [0, 0, 0], radius = -self.d/2, material = materials[0]))
+                else:
+                    raise ValueError("Invalid surface type. Must be 'convex-spherical' or 'concave-spherical'")
         else:
             raise TypeError("All elements in surfaces must be of type 'Surface' or type 'str'")
 
