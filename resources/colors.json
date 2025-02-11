@@ -1,0 +1,36 @@
+{
+    "grays":
+            {
+                "dark":"#121921", 
+                "accent":"#2d3f52", 
+                "accent_dark":"#202d3b",
+                "highlight":"#57718c", 
+                "highlight_dark":"#4f6780",
+                "highight_light":"#6584a3",
+                "neutral":"#4a4d50"
+            },
+    
+    "blues":
+            {
+                "darkblue":"#072e74",
+                "medblue":"#0963ba",
+                "lightblue":"#08a3f9",
+                "skyblue":"#94e3fe"
+            },
+
+    "greens":
+            {
+                "darkgreen":"#338900"
+            },
+
+    "yellows":
+            {
+                "darkyellow":"#dc8f10",
+                "medyellow":"#eeb82e"
+            },
+    "oranges":
+            {
+                "lightorange":"#f69c45",
+                "paleorange":"#f8d18b"
+            }
+}

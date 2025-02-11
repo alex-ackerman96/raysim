@@ -1,0 +1,4 @@
+﻿device type,manufacturer,instrument,vid,pid
+smu,keithley,2450,0x05E6,0x2450
+opm,thorlabs,pm100d,0x1313,0x8078
+opm,thorlabs,pm100usb,0x1313,0x8072

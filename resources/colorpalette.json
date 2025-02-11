@@ -1,0 +1,52 @@
+{
+    "DKGRAY"    :{
+                    "BACKGROUND":"#121921",
+                    "ACCENT":"#2D3F52",
+                    "HIGHLIGHT":"#57718C",
+                    "INACTIVE":"#4A4D50"
+                },
+    "BLUE"      :{    
+                    "BLUE1":"#072E74",
+                    "BLUE2":"#0963BA",
+                    "BLUE3":"#08A3F9",
+                    "BLUE4":"#94E3FE"
+                },
+    "DKBLUE"    :{  
+                    "DKBLUE1":"#051B40",
+                    "DKBLUE2":"#00168B",
+                    "DKBLUE3":"#0A3D9C",
+                    "DKBLUE4":"#1365EE"
+                },
+    "GREEN"     :{  
+                    "GREEN1":"#338900",
+                    "GREEN2":"#48C300",
+                    "GREEN3":"#81C449",
+                    "GREEN4":"#BBE14E"
+                },
+    "GOLD"      :{
+                    "GOLD1":"#DC8F10",
+                    "GOLD2":"#EEB82E",
+                    "GOLD3":"#FFD674",
+                    "GOLD4":"#FAE4BF"
+                },
+    "AUTUMN"    :{
+                    "AUTUMN1":"#AB2C37",
+                    "AUTUMN2":"#F74C16",
+                    "AUTUMN3":"#F69C45",
+                    "AUTUMN4":"#F8D18B"
+                },
+    "RED"       :{
+                    "RED1":"#D41100",
+                    "RED2":"#EB3E31",
+                    "RED3":"#FF6235",
+                    "RED4":"#FF9774"
+                },
+    "COOLBRIGHT":{
+                    "BRIGHTBLUE1":"#072EDB",
+                    "BRIGHTBLUE2":"#09F2E0"
+                },
+    "WARMBRIGHT":{
+                    "BRIGHTORANGE":"#F28D00",
+                    "BRIGHTRED":"#ED0033"
+                }
+}  
