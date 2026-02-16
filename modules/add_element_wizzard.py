@@ -7,7 +7,7 @@ import ctypes
 
 from PyQt6.QtGui import QIcon, QPixmap
 from PyQt6.QtCore import pyqtSignal, QEvent, Qt
-from PyQt6.QtWidgets import QApplication, QWidget, QGridLayout, QGroupBox, QComboBox, QPushButton, QLabel, QRadioButton, QButtonGroup
+from PyQt6.QtWidgets import QApplication, QWidget, QGridLayout, QGroupBox, QComboBox, QPushButton, QLabel, QRadioButton, QButtonGroup, QFrame, QLineEdit
 
 from data.appdata import AppData
 
@@ -67,7 +67,7 @@ class AddElementDialog(QWidget):
         """
         super().__init__(parent)
         self.company = AppData.company
-        self.appname = AppData.appname + " - New DUT Wizzard"                                                           # Application name
+        self.appname = AppData.appname + " - Add New Element"                                                           # Application name
         self.version = AppData.version                                                                                  # Application version
         self.appid = self.company.lower() + "." + self.appname.replace(" ", "_").lower() + "." + self.version           # Company, product, version
         ctypes.windll.shell32.SetCurrentProcessExplicitAppUserModelID(self.appid)                                       # App icon in system tray
@@ -82,124 +82,71 @@ class AddElementDialog(QWidget):
         #Set window icon
         self.setWindowIcon(QIcon(LOGO_ICON_PATH))
         self.setStyleSheet(theme)
-        self.setWindowTitle("New DUT Wizzard")
+        self.setWindowTitle("Add New Element")
         self.window_layout = QGridLayout()
         self.setLayout(self.window_layout)
 
-        self.stepcount = 0
-        self.devicetype = None
-        self.backplane = None
+        self.frame = QFrame(self)
+        self.frame_layout = QGridLayout(self.frame)
+        self.frame.setLayout(self.frame_layout)
+        self.window_layout.addWidget(self.frame, 0, 0)
 
-    #     #############################################################################################################################################################
-    #     self.devicetype_group = QGroupBox("Device Type")
-    #     self.devicetype_group.setFixedSize(800, 400)
-    #     self.devicetype_group_layout = QGridLayout()
-    #     self.devicetype_group.setLayout(self.devicetype_group_layout)
-    #     self.asic_tx = QRadioButton("Active TX (ASIC)")
-    #     self.asic_tx.clicked.connect(self.set_asic_tx)
-    #     self.asic_rx = QRadioButton("Active RX (ASIC)")
-    #     self.asic_rx.clicked.connect(self.set_asic_rx)
-    #     self.asic_duplex = QRadioButton("Active duplex (ASIC)")
-    #     self.asic_duplex.clicked.connect(self.set_asic_duplex)
-    #     self.passive_tx = QRadioButton("Passive TX")
-    #     self.passive_tx.clicked.connect(self.set_passive_tx)
-    #     self.passive_rx = QRadioButton("Passive RX")
-    #     self.passive_rx.clicked.connect(self.set_passive_rx)
-    #     self.backplane_button_group = QButtonGroup()
-    #     self.backplane_button_group.addButton(self.asic_tx)
-    #     self.backplane_button_group.addButton(self.asic_rx)
-    #     self.backplane_button_group.addButton(self.asic_duplex)
-    #     self.backplane_button_group.addButton(self.passive_tx)
-    #     self.backplane_button_group.addButton(self.passive_rx)
-    #     self.devicetype_group_layout.addWidget(self.passive_tx, 1, 0, 1, 1)
-    #     self.devicetype_group_layout.addWidget(self.passive_rx, 2, 0, 1, 1)
-    #     self.devicetype_group_layout.addWidget(self.asic_tx, 3, 0, 1, 1)
-    #     self.devicetype_group_layout.addWidget(self.asic_rx, 4, 0, 1, 1)
-    #     self.devicetype_group_layout.addWidget(self.asic_duplex, 5, 0, 1, 1)
+        self.surfacetype_group = QGroupBox("Surface Type")
+        self.surfacetype_group.setFixedSize(400, 200)
+        self.surfacetype_layout = QGridLayout()
+        self.surfacetype_group.setLayout(self.surfacetype_layout)
 
-    #     #############################################################################################################################################################
-    #     self.backplane_group = QGroupBox("Backplane")
-    #     self.backplane_group.setFixedSize(800, 400)
-    #     self.backplane_group_layout = QGridLayout()
-    #     self.backplane_group.setLayout(self.backplane_group_layout)
-    #     self.backplane_selection = QComboBox()
-    #     self.passive_tx_backplane_options = list(passive.backplanes.keys())
-    #     self.backplane_selection.clear()
-    #     self.backplane_selection.activated.connect(self.set_backplane)
-    #     self.backplane_group_layout.addWidget(self.backplane_selection, 0, 0, 1, 1, Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignVCenter)
-    #     self.backplane_img = QLabel(self.backplane_group)
-    #     self.backplane_group_layout.addWidget(self.backplane_img, 0, 1, 2, 2, Qt.AlignmentFlag.AlignHCenter | Qt.AlignmentFlag.AlignVCenter)
-    #     #############################################################################################################################################################
-    #     self.led_group = QGroupBox("LEDs")
-    #     self.led_group.setFixedSize(800, 400)
-    #     #############################################################################################################################################################
-    #     self.nextbutton = QPushButton("Next")
-    #     self.nextbutton.setFixedHeight(30)
-    #     self.nextbutton.setFixedWidth(100)
-    #     self.nextbutton.clicked.connect(self.nextbutton_clicked)
-    #     self.window_layout.addWidget(self.nextbutton, 1, 1, 1, 1, Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignVCenter)
+        self.spherical_radio = QRadioButton("Spherical Surface")
+        self.aspheric_radio = QRadioButton("Aspheric Surface")
+        self.planar_radio = QRadioButton("Planar Surface")
 
-    #     self.backbutton = QPushButton("Back")
-    #     self.backbutton.setFixedHeight(30)
-    #     self.backbutton.setFixedWidth(100)
-    #     self.backbutton.clicked.connect(self.backbutton_clicked)
-    #     self.window_layout.addWidget(self.backbutton, 1, 0, 1, 1, Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignVCenter)
-    
-    # def set_asic_tx(self):
-    #     self.devicetype = "asic-tx"
-    #     print(self.devicetype)
-    #     self.backplane_img.clear()
-    #     self.backplane_img.setPixmap(QPixmap())
-    #     self.backplane_selection.clear()
-    #     self.nextbutton.setEnabled(True)
+        self.surfacetype_layout.addWidget(self.spherical_radio, 0, 0)
+        self.surfacetype_layout.addWidget(self.aspheric_radio, 0, 1)
+        self.surfacetype_layout.addWidget(self.planar_radio, 0, 2)
 
-    # def set_asic_rx(self):
-    #     self.devicetype = "asic-rx"
-    #     print(self.devicetype)
-    #     self.backplane_img.clear()
-    #     self.backplane_img.setPixmap(QPixmap())
-    #     self.backplane_selection.clear()
-    #     self.nextbutton.setEnabled(True)
+        self.surfacetype_buttongroup = QButtonGroup()
+        self.surfacetype_buttongroup.addButton(self.spherical_radio)
+        self.surfacetype_buttongroup.addButton(self.aspheric_radio)
+        self.surfacetype_buttongroup.addButton(self.planar_radio)
+        self.surfacetype_buttongroup.buttonClicked.connect(self.surfacetype_selected)
 
-    # def set_asic_duplex(self):
-    #     self.devicetype = "asic-duplex"
-    #     print(self.devicetype)
-    #     self.backplane_img.clear()
-    #     self.backplane_img.setPixmap(QPixmap())
-    #     self.backplane_selection.clear()
-    #     self.nextbutton.setEnabled(True)
+        self.concave_radio = QRadioButton("Concave")
+        self.convex_radio = QRadioButton("Convex")
+        self.surfacetype_layout.addWidget(self.concave_radio, 1, 0)
+        self.surfacetype_layout.addWidget(self.convex_radio, 1, 2)
 
-    # def set_passive_tx(self):
-    #     self.devicetype = "passive-tx"
-    #     print(self.devicetype)
-    #     self.backplane_img.clear()
-    #     self.backplane_img.setPixmap(QPixmap())
-    #     self.backplane_selection.clear()
-    #     self.backplane_selection.addItem("Select backplane...")
-    #     self.backplane_selection.model().item(0).setFlags(Qt.ItemFlag.ItemIsEnabled)   
-    #     self.backplane_selection.addItems(self.passive_tx_backplane_options)
-    #     self.nextbutton.setEnabled(True)
+        self.frame_layout.addWidget(self.surfacetype_group, 0, 0, 1, 2)
 
-    # def set_passive_rx(self):
-    #     self.devicetype = "passive-rx"
-    #     print(self.devicetype)
-    #     self.backplane_img.clear()
-    #     self.backplane_img.setPixmap(QPixmap())
-    #     self.backplane_selection.clear()
-    #     self.nextbutton.setEnabled(True)
+        self.surface_profile_group = QGroupBox("Surface Profile")
+        self.surface_profile_layout = QGridLayout()
+        self.surface_profile_group.setLayout(self.surface_profile_layout)
+        self.radius_label = QLabel("Radius of Curvature (R):")
+        self.radius_input = QLineEdit()
+        self.surface_profile_layout.addWidget(self.radius_label, 0, 0)
+        self.surface_profile_layout.addWidget(self.radius_input, 0, 1)
+        self.conic_constant_label = QLabel("Conic Constant (k):")
+        self.conic_constant_input = QLineEdit()
+        self.surface_profile_layout.addWidget(self.conic_constant_label, 1, 0)
+        self.surface_profile_layout.addWidget(self.conic_constant_input, 1, 1)
+        self.frame_layout.addWidget(self.surface_profile_group, 1, 0, 1, 1)
 
-    # def set_backplane(self, index):
-    #     selected_backplane = self.backplane_selection.itemText(index)
-    #     self.backplane = selected_backplane
-    #     if selected_backplane == "GSGR1":
-    #         pixmap = QPixmap('main/resources/backplanes/GSG30R1.png')
-    #     elif selected_backplane == "CF46R0":
-    #         pixmap = QPixmap('main/resources/backplanes/CF46R0.png')
-
-    #     self.backplane_img.clear()
-    #     self.backplane_img.setFixedSize(350, 350)
-    #     self.backplane_img.setPixmap(pixmap)
-    #     self.backplane_img.setScaledContents(True)
+    def surfacetype_selected(self, button):
+        self.surftype = button.text()
+        if self.surftype == "Spherical Surface":
+            self.concave_radio.setDisabled(False)
+            self.convex_radio.setDisabled(False)
+            self.radius_input.setDisabled(False)
+            self.conic_constant_input.setDisabled(True)
+        elif self.surftype == "Planar Surface":
+            self.radius_input.setDisabled(True)
+            self.conic_constant_input.setDisabled(True)
+            self.concave_radio.setDisabled(True)
+            self.convex_radio.setDisabled(True)
+        else:
+            self.radius_input.setDisabled(False)
+            self.conic_constant_input.setDisabled(False)
+            self.concave_radio.setDisabled(False)
+            self.convex_radio.setDisabled(False)
 
     def nextbutton_clicked(self):
         print(f"next button clicked: {self.stepcount}")
