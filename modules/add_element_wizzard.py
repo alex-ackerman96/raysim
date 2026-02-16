@@ -126,9 +126,21 @@ class AddElementDialog(QWidget):
         self.surface_profile_layout.addWidget(self.radius_input, 0, 1)
         self.conic_constant_label = QLabel("Conic Constant (k):")
         self.conic_constant_input = QLineEdit()
+        
         self.surface_profile_layout.addWidget(self.conic_constant_label, 1, 0)
         self.surface_profile_layout.addWidget(self.conic_constant_input, 1, 1)
+
+        self.add_coefficient_button = QPushButton("Add Coefficient")
+        self.coefficient_number = 0
+        self.coefficient_order_labels = []
+        self.coefficient_order_inputs = []
+        self.coeffucient_value_labels = []
+        self.coefficient_value_inputs = []
+        self.surface_profile_layout.addWidget(self.add_coefficient_button, 2, 0, 1, 2)
+        self.add_coefficient_button.clicked.connect(self.add_coefficient)
         self.frame_layout.addWidget(self.surface_profile_group, 1, 0, 1, 1)
+
+
 
     def surfacetype_selected(self, button):
         self.surftype = button.text()
@@ -147,6 +159,28 @@ class AddElementDialog(QWidget):
             self.conic_constant_input.setDisabled(False)
             self.concave_radio.setDisabled(False)
             self.convex_radio.setDisabled(False)
+
+    def add_coefficient(self):
+        print("Add coefficient button clicked")
+        order_label = QLabel(f"Coefficient Order (C{self.coefficient_number}):")
+        order_input = QLineEdit()
+        value_label = QLabel(f"Coefficient Value (C{self.coefficient_number}):")
+        value_input = QLineEdit()
+
+        self.coefficient_order_labels.append(order_label)
+        self.coefficient_order_inputs.append(order_input)
+        self.coeffucient_value_labels.append(value_label)
+        self.coefficient_value_inputs.append(value_input)
+        self.update_coefficient_layout()
+        self.coefficient_number += 1
+
+    def update_coefficient_layout(self):
+        for i in range(self.coefficient_number):
+            self.surface_profile_layout.addWidget(self.coefficient_order_labels[i], 3 + i, 0)
+            self.surface_profile_layout.addWidget(self.coefficient_order_inputs[i], 3 + i, 1)
+            self.surface_profile_layout.addWidget(self.coeffucient_value_labels[i], 3 + i, 2)
+            self.surface_profile_layout.addWidget(self.coefficient_value_inputs[i], 3 + i, 3)
+
 
     def nextbutton_clicked(self):
         print(f"next button clicked: {self.stepcount}")
