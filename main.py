@@ -4,7 +4,7 @@ import ctypes
 
 # PyQt6 imports
 from PyQt6.QtCore import QObject, Qt, QEvent
-from PyQt6.QtWidgets import QApplication, QWidget, QMessageBox, QPushButton, QComboBox, QGridLayout, QMainWindow, QTabWidget, QFrame, QLabel, QGroupBox, QScrollArea, QMenu, QRadioButton
+from PyQt6.QtWidgets import QApplication, QWidget, QMessageBox, QPushButton, QComboBox, QGridLayout, QMainWindow, QTabWidget, QFrame, QLabel, QGroupBox, QScrollArea, QMenu, QRadioButton, QFileDialog
 from PyQt6.QtGui import QIcon, QScreen, QAction, QColor, QPalette, QFont
 
 from data.appdata import AppData
@@ -12,6 +12,9 @@ from modules.terminal import Terminal
 from modules.base.customwidgets import TitleBar
 from modules.base.iconbutton import IconButton
 from modules.console import Console
+from modules.plot_window import PlotWindow
+from modules.surface_table import SurfaceTable
+from modules.add_element_wizzard import AddElementDialog
 from modules.base.customwidgets import PlaceHolderFrame
 
 
@@ -91,14 +94,16 @@ class App(QMainWindow):
         self.menu = self.menuBar()
         self.menu.setStyleSheet(theme)
 
+        self.popup = None
+
         # Menu bar > file menu
         self.file_menu = self.menu.addMenu("&File")
 
-        new_icon = QIcon("code/resources/icons/new_icon.png")
-        self.new_action = QAction(new_icon, "&New DUT...", self)
-        self.new_action.setShortcut("Ctrl+N")
-        self.new_action.triggered.connect(self.new_dut)
-        self.file_menu.addAction(self.new_action)
+        # new_icon = QIcon("code/resources/icons/new_icon.png")
+        # self.new_action = QAction(new_icon, "&New DUT...", self)
+        # self.new_action.setShortcut("Ctrl+N")
+        # self.new_action.triggered.connect(self.new_dut)
+        # self.file_menu.addAction(self.new_action)
 
         new_workspace_icon = QIcon("code/resources/icons/new_folder_icon.png")
         self.new_workspace_action = QAction(new_workspace_icon, "&New Workspace...", self)
@@ -133,6 +138,16 @@ class App(QMainWindow):
         self.save_as_action.setShortcut("Ctrl+Alt+S")
         # self.save_as_action.triggered.connect(self.save_file_as)
         self.file_menu.addAction(self.save_as_action)
+
+        self.file_menu.addSeparator()
+
+        self.add_element_action = QAction("Add Element...", self)
+        self.add_element_action.triggered.connect(self.add_element)
+        self.file_menu.addAction(self.add_element_action)
+
+        self.add_element_from_file_action = QAction("Add Element from File...", self)
+        self.add_element_from_file_action.triggered.connect(self.add_element_from_file)
+        self.file_menu.addAction(self.add_element_from_file_action)
 
         self.file_menu.addSeparator()
 
@@ -201,8 +216,24 @@ class App(QMainWindow):
         self.main_widget = MainWidget(self) 
         self.setCentralWidget(self.main_widget)    
 
-    def new_dut(self):
-        pass
+    def add_element(self):
+        if self.popup is None or not self.popup.isVisible():
+            # parent=None → top-level window
+            self.popup = AddElementDialog(parent=None)
+        self.popup.show()
+        self.popup.raise_()
+        self.popup.activateWindow()
+
+    def add_element_from_file(self):
+        file_path, _ = QFileDialog.getOpenFileName(
+            self,
+            "Select a file",
+            "",
+            "All Files (*);;Text Files (*.txt);;Python Files (*.py)",
+        )
+        if file_path:
+            print("Selected:", file_path)
+        
 
     def set_logger_debug(self):
         pass
@@ -245,13 +276,18 @@ class MainWidget(QWidget):
         self.control_pane = self.ControlPane(self)
         self.main_layout.addWidget(self.control_pane, 0, 0, 2, 1)
 
-        # Tab Holder
-        self.tab_holder = TabHolder(self)
+        # Surface Table
+        self.surface_table = SurfaceTable(self)
+        self.main_layout.addWidget(self.surface_table, 0, 1, 1, 1)
+
+        # Plot Window
+        self.plot_window = PlotWindow(self)
+        self.main_layout.addWidget(self.plot_window, 0, 2, 1, 2)
 
         # Terminal / Event Log
         self.terminal = self.TerminalPanel(self)                               
-        self.main_layout.addWidget(self.terminal, 1, 1)
-        self.main_layout.addWidget(self.tab_holder, 0, 1)
+        self.main_layout.addWidget(self.terminal, 1, 1, 1, 3)
+
     
     class ControlPane(QFrame):
         
