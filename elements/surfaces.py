@@ -8,6 +8,42 @@ class Surface:
         self.mat1 = material1  # material before surface
         self.mat2 = material2  # material after surface
         self.diameter = diameter  # Fixed diameter of the lens surface
+        
+class PlanarSurface(Surface):
+    def __init__(self, center, normal, material1, material2, diameter):
+        super().__init__(center, radius=None, material1=material1, material2=material2, diameter=diameter)
+        # For a plane, radius is not used; we store the normal instead
+        self.normal = np.array(normal) / np.linalg.norm(normal)  # normalize
+
+    @property
+    def vertex(self):
+        return self.center
+
+    def intersect(self, ray):
+        # Plane equation: (P - center) · normal = 0
+        oc = ray.origin - self.center
+        denom = np.dot(self.normal, ray.direction)
+
+        # If ray is nearly parallel to the plane, no intersection
+        if abs(denom) < 1e-10:
+            return None, None
+
+        t = -np.dot(self.normal, oc) / denom
+
+        if t < 0:
+            return None, None  # Intersection behind the ray origin
+
+        intersection = ray.origin + t * ray.direction
+
+        # Check if intersection is within the lens diameter
+        radial_distance = np.linalg.norm(intersection[:2] - self.center[:2])
+        if radial_distance > self.diameter / 2:
+            return None, None
+
+        # The normal is constant for a plane
+        normal = self.normal
+        return intersection, normal
+
 
 class SphericalSurface(Surface):
     def __init__(self, center, radius, material1, material2, diameter):
