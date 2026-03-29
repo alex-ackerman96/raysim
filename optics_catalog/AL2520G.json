@@ -1,0 +1,8 @@
+{
+    "surfaces":{
+    "surf1":{"surftype":"aspheric","diameter":25, "shapeparams":{"r":15.871, "k":-1.57, "coeff":[2.86468e-05, -2.31409e-08]}, "coating":"None"},
+    "surf2":{"surftype":"plano","diameter":25, "coating":"None"}
+    },
+    "materials":["S-LAH64"],
+    "thicknesses":[7.6]
+}

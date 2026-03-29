@@ -8,12 +8,15 @@ class Surface:
         self.mat1 = material1  # material before surface
         self.mat2 = material2  # material after surface
         self.diameter = diameter  # Fixed diameter of the lens surface
-        
+
 class PlanarSurface(Surface):
-    def __init__(self, center, normal, material1, material2, diameter):
-        super().__init__(center, radius=None, material1=material1, material2=material2, diameter=diameter)
+    def __init__(self, center, normal, n1, n2, diameter):
+        super().__init__(center, radius=None, material1=n1, material2=n2, diameter=diameter)
         # For a plane, radius is not used; we store the normal instead
         self.normal = np.array(normal) / np.linalg.norm(normal)  # normalize
+        self.sag = lambda r: 0  # Planar surface has zero sag
+        self.n1 = n1
+        self.n2 = n2
 
     @property
     def vertex(self):
