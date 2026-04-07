@@ -1,7 +1,7 @@
 import numpy as np
 from scipy import optimize
 import matplotlib.pyplot as plt
-from elements.surfaces import AsphericSurface, PlanarSurface
+from elements.surfaces import AsphericSurface, PlanarSurface, SphericalSurface
 from rays.ray import Ray
 
 
@@ -331,7 +331,8 @@ def plot_aspheric_surface_with_refract(surfaces, rays, max_r=None, n=500, ray_le
 if __name__ == '__main__':
     # s1 = AsphericSurface(vertex=[0, 0, 10], radius=15.871, conic=-1.57, aspheric_coeffs=[2.86468e-05, -2.31409e-08], n1=1.0, n2=1.5, diameter=25.0)
     s1 = AsphericSurface(vertex=[0, 0, 10], radius=20, conic=-1.2, aspheric_coeffs=[1.5e-6, -3.5e-8, -2e-11], n1=1.0, n2=1.5, diameter=40.0)
-    s2 = PlanarSurface(center=[0, 0, 20], normal=[0,0,1], n1=1.5, n2=1.0, diameter=40.0)
+    # s2 = PlanarSurface(center=[0, 0, 20], normal=[0,0,1], n1=1.5, n2=1.0, diameter=40.0)
+    s2 = SphericalSurface(center=[0, 0, 22], radius=-60, n1=1.5, n2=1.0, diameter=40.0)
     # r = Ray(origin=[0, 0, 0], direction=[0, 0.5, 1])
     r1 = Ray(origin=[0, 10, 0], direction=[0, 0, 1])
     r2 = Ray(origin=[0, 5, 0], direction=[0, 0, 1])

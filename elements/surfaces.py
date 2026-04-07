@@ -49,12 +49,19 @@ class PlanarSurface(Surface):
 
 
 class SphericalSurface(Surface):
-    def __init__(self, center, radius, material1, material2, diameter):
-        super().__init__(center, radius, material1, material2, diameter)
+    def __init__(self, center, radius, n1, n2, diameter):
+        super().__init__(center, radius, material1=n1, material2=n2, diameter=diameter)
+        self.n1 = n1
+        self.n2 = n2
 
     @property
     def vertex(self):
         return self.center
+    
+    def sag(self, r):
+        r2 = np.asarray(r)
+        arg = np.clip(self.radius**2 - r2**2, 0, None)  # clamp negatives to 0
+        return self.radius - np.sign(self.radius) * np.sqrt(arg)
 
     def intersect(self, ray):
         oc = ray.origin - self.center
