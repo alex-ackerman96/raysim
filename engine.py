@@ -52,7 +52,7 @@ def ray_surface_intersection(surface, ray, t_max=200.0):
     idx = np.where(np.sign(vals[:-1]) * np.sign(vals[1:]) <= 0)[0]
     if len(idx) == 0:
         # No sign change found — ray never crosses the surface within t_max
-        return None, None
+        return None, None, None
 
     # --- Step 2: Root refinement with Brent's method ---
     # Use the first sign-change interval [a, b] as the bracket.
@@ -60,7 +60,7 @@ def ray_surface_intersection(surface, ray, t_max=200.0):
     a, b = grid[idx[0]], grid[idx[0] + 1]
     res = optimize.root_scalar(f, bracket=[a, b], method='brentq')
     if not res.converged:
-        return None, None
+        return None, None, None
 
     t_hit = res.root
     hit = ray.origin + t_hit * ray.direction  # 3D intersection point on the surface
@@ -71,7 +71,7 @@ def ray_surface_intersection(surface, ray, t_max=200.0):
     # exists within its clear aperture — rays outside it should pass unobstructed.
     r_hit = np.sqrt((hit[0] - surface.vertex[0])**2 + (hit[1] - surface.vertex[1])**2)
     if r_hit > surface.diameter / 2:
-        return None, None
+        return None, None, None
 
     # --- Step 4: Surface normal via finite differences ---
     # The surface is z = vertex_z + sag(r), so it can be written as:
@@ -180,6 +180,12 @@ def plot_aspheric_surface_with_refract(lenses, rays, max_r=None, n=500, ray_leng
                 t1 = np.linspace(0, ray_length, 200)
                 pts1 = current_ray.origin[None, :] + t1[:, None] * current_ray.direction[None, :]
                 ax.plot(pts1[:, 2], pts1[:, 1], color=color, lw=0.8, alpha=current_intensity * 0.8)
+
+                # endpoint of this free-space segment
+                end_point = current_ray.origin + ray_length * current_ray.direction
+                current_ray.set_state(end_point, current_ray.direction)
+                current_ray.add_hit(end_point)
+
                 completed = False
                 break
 
@@ -312,19 +318,19 @@ if __name__ == '__main__':
     # ])
 
     rays = [
-        Ray(origin=[0,   0, 0], direction=[0,  0.3, 1]),]
-    #     Ray(origin=[0,   0, 0], direction=[0,  0.0, 1]),
-    #     Ray(origin=[0,   0, 0], direction=[0, -0.3, 1]),
-    #     Ray(origin=[0,   5, 0], direction=[0,  0.3, 1]),
-    #     Ray(origin=[0,   5, 0], direction=[0,  0.0, 1]),
-    #     Ray(origin=[0,   5, 0], direction=[0, -0.3, 1]),
-    #     Ray(origin=[0,  -5, 0], direction=[0,  0.3, 1]),
-    #     Ray(origin=[0,  -5, 0], direction=[0,  0.0, 1]),
-    #     Ray(origin=[0,  -5, 0], direction=[0, -0.3, 1]),
-    #     Ray(origin=[0,  15, 0], direction=[0,  0.3, 1]),
-    #     Ray(origin=[0,  15, 0], direction=[0,  0.0, 1]),
-    #     Ray(origin=[0,  15, 0], direction=[0, -0.3, 1]),
-    # ]
+        Ray(origin=[0,   0, 0], direction=[0,  0.3, 1]),
+        Ray(origin=[0,   0, 0], direction=[0,  0.0, 1]),
+        Ray(origin=[0,   0, 0], direction=[0, -0.3, 1]),
+        Ray(origin=[0,   5, 0], direction=[0,  0.3, 1]),
+        Ray(origin=[0,   5, 0], direction=[0,  0.0, 1]),
+        Ray(origin=[0,   5, 0], direction=[0, -0.3, 1]),
+        Ray(origin=[0,  -5, 0], direction=[0,  0.3, 1]),
+        Ray(origin=[0,  -5, 0], direction=[0,  0.0, 1]),
+        Ray(origin=[0,  -5, 0], direction=[0, -0.3, 1]),
+        Ray(origin=[0,  15, 0], direction=[0,  0.3, 1]),
+        Ray(origin=[0,  15, 0], direction=[0,  0.0, 1]),
+        Ray(origin=[0,  15, 0], direction=[0, -0.3, 1]),
+    ]
 
     fig, ax = plot_aspheric_surface_with_refract(
         [lens1, lens2], rays, refracted_length=300
