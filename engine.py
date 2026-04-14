@@ -2,7 +2,7 @@ import numpy as np
 from scipy import optimize
 import matplotlib.pyplot as plt
 from elements.surfaces import AsphericSurface, PlanarSurface, SphericalSurface
-from rays.ray import Ray
+from rays.ray import RayGroup, Ray
 
 DARK_BG    = '#0a0b0c'
 LIGHT_BG   = '#ffffff'
@@ -219,57 +219,6 @@ def plot_aspheric_surface_with_refract(lenses, rays, max_r=None, n=500, ray_leng
         print("Ray path:")
         for i, p in enumerate(current_ray.path):
             print(f"  {i}: {p[0]:.2f}, {p[1]:.2f}, {p[2]:.2f}")
-    # for ray_idx, ray in enumerate(rays):
-    #     color = colors[0]
-    #     current_intensity = 1.0
-    #     current_ray = ray
-    #     completed = True
-
-    #     for surface in all_surfaces:
-    #         t_hit, normal = ray_surface_intersection(surface, current_ray, t_max=ray_length)
-
-    #         if t_hit is None:
-    #             t1 = np.linspace(0, ray_length, 200)
-    #             pts1 = current_ray.origin[None, :] + t1[:, None] * current_ray.direction[None, :]
-    #             ax.plot(pts1[:, 2], pts1[:, 1], color=color, lw=0.8, alpha=current_intensity * 0.8)
-    #             completed = False
-    #             break
-
-    #         t1 = np.linspace(0, t_hit, 200)
-    #         pts1 = current_ray.origin[None, :] + t1[:, None] * current_ray.direction[None, :]
-    #         ax.plot(pts1[:, 2], pts1[:, 1], color=color, lw=0.8, alpha=current_intensity * T * 0.8)
-
-    #         hit = current_ray.origin + t_hit * current_ray.direction
-
-    #         reflect_dir = current_ray.direction - 2 * np.dot(current_ray.direction, normal) * normal
-    #         reflect_ray = Ray(hit, reflect_dir, wavelength=current_ray.wavelength)
-    #         t_refl = np.linspace(0, refracted_length * 0.7, 150)
-    #         pts_refl = reflect_ray.origin[None, :] + t_refl[:, None] * reflect_ray.direction[None, :]
-    #         ax.plot(pts_refl[:, 2], pts_refl[:, 1], color=color, lw=0.6,
-    #                 alpha=current_intensity * R * 0.6, linestyle='--')
-
-    #         refr_dir = refract(current_ray.direction, normal, surface.n1, surface.n2)
-    #         if refr_dir is None:
-    #             completed = False
-    #             break
-    #         current_ray = Ray(hit + 1e-6 * refr_dir, refr_dir, wavelength=current_ray.wavelength)
-    #         current_intensity *= T
-
-    #     if completed:
-    #         t2 = np.linspace(0, refracted_length, 200)
-    #         pts2 = current_ray.origin[None, :] + t2[:, None] * current_ray.direction[None, :]
-    #         ax.plot(pts2[:, 2], pts2[:, 1], color=color, lw=0.8, alpha=current_intensity * 0.8)
-
-    # ax.set_aspect('equal', adjustable='box')
-    # ax.set_xlabel('Z')
-    # ax.set_ylabel('Radius / Y')
-    # ax.set_title('Ray Propagation: 80%T/20%R with Reflections')
-    # ax.grid(True, alpha=0.3)
-    # plt.tight_layout()
-    # print(len(ray.path))
-    # print(f"Ray path:")
-    # for i in range(0, len(ray.path), 1):
-    #     print(f"  {i}: {ray.path[i][0]:.2f}, {ray.path[i][1]:.2f}, {ray.path[i][2]:.2f}")
     return fig, ax
 
 
@@ -331,6 +280,8 @@ if __name__ == '__main__':
         Ray(origin=[0,  15, 0], direction=[0,  0.0, 1]),
         Ray(origin=[0,  15, 0], direction=[0, -0.3, 1]),
     ]
+
+    group = RayGroup(rays)
 
     fig, ax = plot_aspheric_surface_with_refract(
         [lens1, lens2], rays, refracted_length=300

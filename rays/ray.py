@@ -125,6 +125,24 @@ class RayGroup:
     def propagate(self, distance):
         self.ray_origins += distance * self.ray_directions
 
+    def set_state(self, origins, directions):
+        origins = np.asarray(origins, dtype=float).reshape(-1, 3)
+        directions = np.asarray(directions, dtype=float).reshape(-1, 3)
+
+        if origins.shape != directions.shape:
+            raise ValueError("origins and directions must have the same shape (N, 3)")
+
+        mags = np.linalg.norm(directions, axis=1)
+        if np.any(mags == 0):
+            raise ValueError("direction vectors cannot contain zeros")
+
+        self.origins = origins
+        self.directions = directions / mags[:, None]
+
+        self.i = self.directions[:, 0]
+        self.j = self.directions[:, 1]
+        self.k = self.directions[:, 2]
+
 class IdealLambertianSource(RayGroup):
     pass
 
