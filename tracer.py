@@ -13,21 +13,46 @@ class Lens:
         # Placeholder for loading lens data from a file (e.g., JSON, CSV)
         pass  
 
-class Tracer:
-    """
-    Vectorized ray tracer for sequential optical surfaces.
 
-    - Operates on ray groups: origins (N, 3), directions (N, 3).
-    - Uses coarse bracketing + fixed-iteration bisection per surface.
-    - Computes sagged-surface intersections, aperture clipping, and refraction.
-    - Returns full per-step paths for all rays.
-    """
+class Tracer:
 
     def __init__(self, t_max=200.0, bracket_samples=256, refine_iters=10, eps=1e-6):
         self.t_max = float(t_max)
         self.bracket_samples = int(bracket_samples)
         self.refine_iters = int(refine_iters)
         self.eps = float(eps)
+    # ----------------- adapters: objects -> arrays -----------------
+
+    def _from_ray(self, ray: Ray):
+        origins = ray.origin.reshape(1, 3)
+        directions = ray.direction.reshape(1, 3)
+        return origins, directions
+
+    def _from_raygroup(self, group: RayGroup):
+        if group.ray_origins is None or group.ray_directions is None:
+            raise ValueError("RayGroup has no origins/directions set")
+        origins = np.asarray(group.ray_origins, dtype=float).reshape(-1, 3)
+        directions = np.asarray(group.ray_directions, dtype=float).reshape(-1, 3)
+        return origins, directions
+    
+        # ----------------- adapters: arrays -> objects -----------------
+
+    def _update_ray_from_arrays(self, ray: Ray, paths, final_origins, final_dirs):
+        """
+        paths: (S, 1, 3), final_origins: (1,3), final_dirs: (1,3)
+        """
+        # update origin/direction
+        ray.set_state(final_origins[0], final_dirs[0])
+        # rebuild path from paths (S,1,3)
+        ray.path = [paths[s, 0, :].copy() for s in range(paths.shape[0])]
+
+    def _update_raygroup_from_arrays(self, group: RayGroup, paths, final_origins, final_dirs):
+        """
+        paths: (S, N, 3), final_origins: (N,3), final_dirs: (N,3)
+        """
+        group.ray_origins = final_origins
+        group.ray_directions = final_dirs
+        group.ray_paths = paths  # store full history at group level
 
     # ---------- core implicit surface function ----------
 
@@ -276,6 +301,46 @@ class Tracer:
 
         paths = np.stack(path_list, axis=0)  # (S, N, 3)
         return paths, origins, directions
+    def trace(self, lenses, rays, refracted_length=300.0):
+        """
+        Generic entry point: accepts a single Ray, a list[Ray], or a RayGroup.
+
+        Returns:
+            paths, final_origins, final_directions
+        """
+        # single Ray
+        if isinstance(rays, Ray):
+            origins, directions = self._from_ray(rays)
+            paths, final_origins, final_dirs = self.trace_group(
+                lenses, origins, directions, refracted_length=refracted_length
+            )
+            self._update_ray_from_arrays(rays, paths, final_origins, final_dirs)
+            return paths, final_origins, final_dirs
+
+        # RayGroup
+        if isinstance(rays, RayGroup):
+            origins, directions = self._from_raygroup(rays)
+            paths, final_origins, final_dirs = self.trace_group(
+                lenses, origins, directions, refracted_length=refracted_length
+            )
+            self._update_raygroup_from_arrays(rays, paths, final_origins, final_dirs)
+            return paths, final_origins, final_dirs
+
+        # list/tuple of Ray objects
+        if isinstance(rays, (list, tuple)) and all(isinstance(r, Ray) for r in rays):
+            origins = np.vstack([r.origin for r in rays])
+            directions = np.vstack([r.direction for r in rays])
+            paths, final_origins, final_dirs = self.trace_group(
+                lenses, origins, directions, refracted_length=refracted_length
+            )
+            # push back into Ray objects
+            S, N, _ = paths.shape
+            for i, ray in enumerate(rays):
+                ray.set_state(final_origins[i], final_dirs[i])
+                ray.path = [paths[s, i, :].copy() for s in range(S)]
+            return paths, final_origins, final_dirs
+
+        raise TypeError("rays must be Ray, RayGroup, or list[Ray]")
     
 import numpy as np
 import matplotlib.pyplot as plt
@@ -320,7 +385,7 @@ def plot_lens_and_rays(lenses, paths, max_r=None):
     if max_r is None:
         max_r = max(s.diameter for s in all_surfaces) / 2.0
 
-    n = 400
+    n = 4000
     r = np.linspace(0, max_r, n)
     for lens in lenses:
         surf_zprofiles = []
@@ -339,7 +404,7 @@ def plot_lens_and_rays(lenses, paths, max_r=None):
 
     # ---- draw rays using paths ----
     S, N, _ = paths.shape
-    colors = ['#4dbf6b', '#ff6b6b', '#4d96ff', '#ffaa00', '#aa66cc', '#ff4444']
+    colors = ['#4dbf6b']
 
     for i in range(N):
         p = paths[:, i, :]  # (S, 3) – sequence of points for ray i
@@ -361,56 +426,97 @@ def plot_lens_and_rays(lenses, paths, max_r=None):
 
 
 if __name__ == '__main__':
-    # ---- build lenses as in your engine.py ----
+
     lens1 = Lens(surfaces=[
         SphericalSurface(center=[0, 0, 40], radius=60,  n1=1.0, n2=1.5, diameter=50.0),
         SphericalSurface(center=[0, 0, 55], radius=-60, n1=1.5, n2=1.0, diameter=50.0),
     ])
 
+    # Singlet lens 2
     lens2 = Lens(surfaces=[
         SphericalSurface(center=[0, 0, 80], radius=40,  n1=1.0, n2=1.5, diameter=40.0),
         SphericalSurface(center=[0, 0, 97], radius=-40, n1=1.5, n2=1.8, diameter=40.0),
         SphericalSurface(center=[0, 0, 100], radius=-120, n1=1.8, n2=1.0, diameter=40.0),
     ])
 
-    lenses = [lens1, lens2]
+    # Example doublet lens 3 (3 surfaces: air | glass1 | glass2 | air)
+    # lens3 = Lens(surfaces=[
+    #     SphericalSurface(center=[0, 0, 200], radius=30,   n1=1.0,  n2=1.5,  diameter=30.0),
+    #     SphericalSurface(center=[0, 0, 210], radius=-25,  n1=1.5,  n2=1.62, diameter=30.0),
+    #     SphericalSurface(center=[0, 0, 218], radius=-60,  n1=1.62, n2=1.0,  diameter=30.0),
+    # ])
 
-    # ---- initial rays (matching your existing setup) ----
-    origins = np.array([
-        [0,   0, 0],
-        [0,   0, 0],
-        [0,   0, 0],
-        [0,   5, 0],
-        [0,   5, 0],
-        [0,   5, 0],
-        [0,  -5, 0],
-        [0,  -5, 0],
-        [0,  -5, 0],
-        [0,  15, 0],
-        [0,  15, 0],
-        [0,  15, 0],
-    ], dtype=float)
+    rays = [
+        Ray(origin=[0,   0, 0], direction=[0,  0.3, 1]),
+        Ray(origin=[0,   0, 0], direction=[0,  0.0, 1]),
+        Ray(origin=[0,   0, 0], direction=[0, -0.3, 1]),
+        Ray(origin=[0,   5, 0], direction=[0,  0.3, 1]),
+        Ray(origin=[0,   5, 0], direction=[0,  0.0, 1]),
+        Ray(origin=[0,   5, 0], direction=[0, -0.3, 1]),
+        Ray(origin=[0,  -5, 0], direction=[0,  0.3, 1]),
+        Ray(origin=[0,  -5, 0], direction=[0,  0.0, 1]),
+        Ray(origin=[0,  -5, 0], direction=[0, -0.3, 1]),
+        Ray(origin=[0,  15, 0], direction=[0,  0.3, 1]),
+        Ray(origin=[0,  15, 0], direction=[0,  0.0, 1]),
+        Ray(origin=[0,  15, 0], direction=[0, -0.3, 1]),
+    ]
 
-    directions = np.array([
-        [0,  0.3, 1],
-        [0,  0.0, 1],
-        [0, -0.3, 1],
-        [0,  0.3, 1],
-        [0,  0.0, 1],
-        [0, -0.3, 1],
-        [0,  0.3, 1],
-        [0,  0.0, 1],
-        [0, -0.3, 1],
-        [0,  0.3, 1],
-        [0,  0.0, 1],
-        [0, -0.3, 1],
-    ], dtype=float)
+    g = RayGroup(rays)   # after you implement this
+    tracer = Tracer()
+    paths, final_origins, final_dirs = tracer.trace([lens1, lens2], g)
+    
 
-    # ---- trace with Tracer ----
-    tracer = Tracer(t_max=200.0, bracket_samples=256, refine_iters=10, eps=1e-6)
-    paths, final_origins, final_dirs = tracer.trace_group(lenses, origins, directions)
+# g.ray_origins, g.ray_directions, g.ray_paths now hold the ray bundle state.
+    # # ---- build lenses as in your engine.py ----
+    # lens1 = Lens(surfaces=[
+    #     SphericalSurface(center=[0, 0, 40], radius=60,  n1=1.0, n2=1.5, diameter=50.0),
+    #     SphericalSurface(center=[0, 0, 55], radius=-60, n1=1.5, n2=1.0, diameter=50.0),
+    # ])
+
+    # lens2 = Lens(surfaces=[
+    #     SphericalSurface(center=[0, 0, 80], radius=40,  n1=1.0, n2=1.5, diameter=40.0),
+    #     SphericalSurface(center=[0, 0, 97], radius=-40, n1=1.5, n2=1.8, diameter=40.0),
+    #     SphericalSurface(center=[0, 0, 100], radius=-120, n1=1.8, n2=1.0, diameter=40.0),
+    # ])
+
+    # lenses = [lens1, lens2]
+
+    # # ---- initial rays (matching your existing setup) ----
+    # origins = np.array([
+    #     [0,   0, 0],
+    #     [0,   0, 0],
+    #     [0,   0, 0],
+    #     [0,   5, 0],
+    #     [0,   5, 0],
+    #     [0,   5, 0],
+    #     [0,  -5, 0],
+    #     [0,  -5, 0],
+    #     [0,  -5, 0],
+    #     [0,  15, 0],
+    #     [0,  15, 0],
+    #     [0,  15, 0],
+    # ], dtype=float)
+
+    # directions = np.array([
+    #     [0,  0.3, 1],
+    #     [0,  0.0, 1],
+    #     [0, -0.3, 1],
+    #     [0,  0.3, 1],
+    #     [0,  0.0, 1],
+    #     [0, -0.3, 1],
+    #     [0,  0.3, 1],
+    #     [0,  0.0, 1],
+    #     [0, -0.3, 1],
+    #     [0,  0.3, 1],
+    #     [0,  0.0, 1],
+    #     [0, -0.3, 1],
+    # ], dtype=float)
+
+    # # ---- trace with Tracer ----
+    # tracer = Tracer(t_max=200.0, bracket_samples=256, refine_iters=10, eps=1e-6)
+    # paths, final_origins, final_dirs = tracer.trace_group(lenses, origins, directions)
 
     # ---- plot result ----
-    fig, ax = plot_lens_and_rays(lenses, paths, max_r=None)
+    fig, ax = plot_lens_and_rays([lens1, lens2], paths, max_r=None)
     print(paths)
     plt.show()

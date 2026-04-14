@@ -114,13 +114,30 @@ class Ray:
         return np.array([theta_x, theta_y])
 
 class RayGroup:
-    def __init__(self, rays : Union[Ray, list[Ray]]):
-        self.ray_origins = None
-        self.ray_directions = None
-        self.ray_paths = None
+    def __init__(self, rays: Union[Ray, list[Ray]] = None):
+        self.ray_origins = None      # (N,3)
+        self.ray_directions = None   # (N,3)
+        self.ray_paths = None        # (S,N,3), filled by Tracer
+        self._rays = None            # optional: keep original Ray objects
 
-    def add_rays(self, rays : Union[Ray, list[Ray]]):
-        pass
+        if rays is not None:
+            self.add_rays(rays)
+
+    def add_rays(self, rays: Union[Ray, list[Ray]]):
+        if isinstance(rays, Ray):
+            rays = [rays]
+        elif not isinstance(rays, list):
+            raise TypeError("rays must be Ray or list[Ray]")
+
+        if len(rays) == 0:
+            raise ValueError("RayGroup must contain at least one Ray")
+
+        origins = np.vstack([r.origin for r in rays])
+        directions = np.vstack([r.direction for r in rays])
+
+        self.ray_origins = origins
+        self.ray_directions = directions
+        self._rays = rays
 
     def propagate(self, distance):
         self.ray_origins += distance * self.ray_directions
