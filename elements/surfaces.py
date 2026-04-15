@@ -90,6 +90,30 @@ class SphericalSurface(Surface):
         normal = (intersection - self.center) / self.radius
         return intersection, normal
 
+# class AsphericSurface:
+#     def __init__(self, vertex, radius, conic, aspheric_coeffs, n1, n2, diameter):
+#         self.vertex = np.array(vertex, dtype=float)
+#         self.radius = float(radius)
+#         self.conic = float(conic)
+#         self.aspheric_coeffs = list(aspheric_coeffs)
+#         self.n1 = float(n1)
+#         self.n2 = float(n2)
+#         self.diameter = float(diameter)
+
+#     def sag(self, r):
+#         r = np.asarray(r, dtype=float)
+#         c = 1.0 / self.radius
+
+#         arg = 1.0 - (1.0 + self.conic) * (c**2) * (r**2)
+#         arg = np.clip(arg, 0.0, None)
+
+#         base = (c * r**2) / (1.0 + np.sqrt(arg))
+
+#         z = base.copy() if isinstance(base, np.ndarray) else base
+#         for i, a in enumerate(self.aspheric_coeffs):
+#             z = z + a * r**(2 * (i + 2))
+
+#         return z
 class AsphericSurface:
     def __init__(self, vertex, radius, conic, aspheric_coeffs, n1, n2, diameter):
         self.vertex = np.array(vertex, dtype=float)
@@ -103,13 +127,12 @@ class AsphericSurface:
     def sag(self, r):
         r = np.asarray(r, dtype=float)
         c = 1.0 / self.radius
-
         arg = 1.0 - (1.0 + self.conic) * (c**2) * (r**2)
         arg = np.clip(arg, 0.0, None)
 
         base = (c * r**2) / (1.0 + np.sqrt(arg))
-
         z = base.copy() if isinstance(base, np.ndarray) else base
+
         for i, a in enumerate(self.aspheric_coeffs):
             z = z + a * r**(2 * (i + 2))
 

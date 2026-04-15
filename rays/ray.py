@@ -225,6 +225,66 @@ class IdealLambertianSource3D(RayGroup):
 
         super().__init__(rays)
 
+class TruncatedLambertianSource3D(RayGroup):
+    def __init__(self, origin, num_rays=1000, wavelength=550.0, distribution='random', half_angle_deg=30.0):
+
+        if distribution not in ['random', 'deterministic']:
+            raise ValueError("distribution must be 'random' or 'deterministic'")
+
+        if not (0.0 < half_angle_deg <= 90.0):
+            raise ValueError("half_angle_deg must be in the range (0, 90]")
+
+        rays = []
+
+        theta_max = np.radians(half_angle_deg)
+        sin_theta_max = np.sin(theta_max)
+
+        # Truncated 3D Lambertian / cosine-weighted cone sampling
+        #
+        # Full hemisphere PDF over solid angle:
+        #   p(omega) = cos(theta) / pi
+        #
+        # Restricted to cone 0 <= theta <= theta_max:
+        #   p(theta, phi) ∝ cos(theta) sin(theta)
+        #
+        # CDF in theta:
+        #   F(theta) = sin^2(theta) / sin^2(theta_max)
+        #
+        # Inverse CDF:
+        #   theta = arcsin( sin(theta_max) * sqrt(u) )
+        #
+        # phi remains uniform on [0, 2*pi)
+
+        if distribution == 'random':
+            u = np.random.uniform(0.0, 1.0, size=num_rays)
+            v = np.random.uniform(0.0, 1.0, size=num_rays)
+        else:
+            u = (np.arange(num_rays) + 0.5) / num_rays
+            golden_ratio_conjugate = (np.sqrt(5.0) - 1.0) / 2.0
+            v = (np.arange(num_rays) * golden_ratio_conjugate) % 1.0
+
+        theta = np.arcsin(sin_theta_max * np.sqrt(u))
+        phi = 2.0 * np.pi * v
+
+        # Cartesian direction cosines, cone centered on +z
+        dx = np.sin(theta) * np.cos(phi)
+        dy = np.sin(theta) * np.sin(phi)
+        dz = np.cos(theta)
+
+        # Convert to your projected angular representation
+        theta_x = np.degrees(np.arctan2(dx, dz))
+        theta_y = np.degrees(np.arctan2(dy, dz))
+
+        for tx, ty in zip(theta_x, theta_y):
+            ray = Ray(
+                origin=origin,
+                direction=[tx, ty],
+                wavelength=wavelength
+            )
+            rays.append(ray)
+
+        super().__init__(rays)
+
 class AngularSource2D(RayGroup):
     def __init__(self, origin, num_rays=1000, wavelength=550.0, distribution='random', plane='xz'):
 
@@ -286,6 +346,64 @@ class IdealLambertianSource2D(RayGroup):
         theta = np.degrees(np.arcsin(2.0 * u - 1.0))
 
         # Optional: sort for cleaner fan plotting
+        theta = np.sort(theta)
+
+        if plane == 'xz':
+            for theta_x in theta:
+                ray = Ray(
+                    origin=origin,
+                    direction=[theta_x, 0.0],
+                    wavelength=wavelength
+                )
+                rays.append(ray)
+
+        else:  # plane == 'yz'
+            for theta_y in theta:
+                ray = Ray(
+                    origin=origin,
+                    direction=[0.0, theta_y],
+                    wavelength=wavelength
+                )
+                rays.append(ray)
+
+        super().__init__(rays)
+
+class TruncatedLambertianSource2D(RayGroup):
+    def __init__(self, origin, num_rays=1000, wavelength=550.0,
+                 distribution='random', plane='xz', half_angle_deg=30.0):
+
+        if plane not in ['xz', 'yz']:
+            raise ValueError("plane must be 'xz' or 'yz'")
+
+        if distribution not in ['random', 'deterministic']:
+            raise ValueError("distribution must be 'random' or 'deterministic'")
+
+        if not (0.0 < half_angle_deg <= 90.0):
+            raise ValueError("half_angle_deg must be in the range (0, 90]")
+
+        theta_max = np.radians(half_angle_deg)
+        sin_theta_max = np.sin(theta_max)
+
+        rays = []
+
+        # 2D truncated Lambertian angular PDF:
+        # p(theta) = cos(theta) / (2 sin(theta_max)),
+        # theta in [-theta_max, +theta_max]
+        #
+        # CDF:
+        # F(theta) = (sin(theta) + sin(theta_max)) / (2 sin(theta_max))
+        #
+        # Inverse CDF:
+        # theta = arcsin((2u - 1) * sin(theta_max))
+
+        if distribution == 'random':
+            u = np.random.uniform(0.0, 1.0, size=num_rays)
+        else:
+            # Smooth deterministic quantile sampling
+            u = (np.arange(num_rays) + 0.5) / num_rays
+
+        theta = np.degrees(np.arcsin((2.0 * u - 1.0) * sin_theta_max))
+
         theta = np.sort(theta)
 
         if plane == 'xz':

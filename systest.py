@@ -1,6 +1,6 @@
 from tracer import Tracer
 from visualization import NormalPlaneMap
-from rays.ray import Ray, RayGroup, IdealLambertianSource3D
+from rays.ray import Ray, RayGroup, IdealLambertianSource3D, TruncatedLambertianSource3D
 from elements.surfaces import AsphericSurface, PlanarSurface, SphericalSurface
 from dataclasses import dataclass
 from typing import List
@@ -14,15 +14,16 @@ class Lens:
         pass  
 
 lens1 = Lens(surfaces=[
-        SphericalSurface(center=[0, 0, 40], radius=60,  n1=1.0, n2=1.5, diameter=50.0),
-        SphericalSurface(center=[0, 0, 55], radius=-60, n1=1.5, n2=1.0, diameter=50.0),
+        AsphericSurface(vertex=[0, 0, 90], radius=30, conic=-1.1, aspheric_coeffs=[0.15e-6, -0.15e-8, -1e-11], n1=1.0, n2=1.5, diameter=50.0),
+        # SphericalSurface(center=[0, 0, 40], radius=60,  n1=1.0, n2=1.5, diameter=50.0),
+        SphericalSurface(center=[0, 0, 95], radius=-60, n1=1.5, n2=1.0, diameter=50.0),
     ])
 
 # Singlet lens 2
 lens2 = Lens(surfaces=[
-    SphericalSurface(center=[0, 0, 80], radius=40,  n1=1.0, n2=1.5, diameter=40.0),
-    SphericalSurface(center=[0, 0, 97], radius=-40, n1=1.5, n2=1.8, diameter=40.0),
-    SphericalSurface(center=[0, 0, 100], radius=-120, n1=1.8, n2=1.0, diameter=40.0),
+    SphericalSurface(center=[0, 0, 110], radius=40,  n1=1.0, n2=1.5, diameter=40.0),
+    SphericalSurface(center=[0, 0, 120], radius=-40, n1=1.5, n2=1.8, diameter=40.0),
+    SphericalSurface(center=[0, 0, 125], radius=-120, n1=1.8, n2=1.0, diameter=40.0),
 ])
 
 
@@ -45,10 +46,10 @@ rays = [
 ]
 
 # g = RayGroup(rays)   # after you implement this
-g = IdealLambertianSource3D(origin=[0, 0, 0], num_rays=10000, wavelength=500)
+g = TruncatedLambertianSource3D(origin=[0, 0, 0], num_rays=1000, wavelength=500)
 tracer = Tracer()
 paths, final_origins, final_dirs = tracer.trace([lens1, lens2], g)
 
-plane_map = NormalPlaneMap(rays=g, z=70)
+plane_map = NormalPlaneMap(rays=g, z=150)
 plane_map.xy_at_z()
 plane_map.plot()
