@@ -313,8 +313,6 @@ class AngularSource2D(RayGroup):
 
         super().__init__(rays)
 
-import numpy as np
-
 class IdealLambertianSource2D(RayGroup):
     def __init__(self, origin, num_rays=1000, wavelength=550.0, distribution='random', plane='xz'):
 

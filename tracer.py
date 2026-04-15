@@ -511,10 +511,11 @@ def plot_lens_and_rays(lenses, paths, max_r=None):
         max_r = max(s.diameter for s in all_surfaces) / 2.0
 
     n = 4000
-    r = np.linspace(0, max_r, n)
+    # r = np.linspace(0, max_r, n)
     for lens in lenses:
         surf_zprofiles = []
         for surface in lens.surfaces:
+            r = np.linspace(0, surface.diameter/2, n)
             z = np.array([surface.sag(ri) for ri in r]) + surface.vertex[2]
             surf_zprofiles.append(z)
             ax.plot(z,  r, lw=0.5, color='black', alpha=0.9)
@@ -527,7 +528,7 @@ def plot_lens_and_rays(lenses, paths, max_r=None):
             ax.fill_betweenx( r, z_prev, z_curr, color='lightblue', alpha=0.8)
             ax.fill_betweenx(-r, z_prev, z_curr, color='lightblue', alpha=0.8)
     ax.set_xlim(0, None)
-    ax.set_ylim(-1.1*max_r, 1.1*max_r)
+    ax.set_ylim(-1.25*max_r, 1.25*max_r)
     ax.set_aspect('equal', adjustable='box')
     ax.set_xlabel('Z')
     ax.set_ylabel('Radius / Y')
@@ -546,9 +547,9 @@ if __name__ == '__main__':
 
     # Singlet lens 2
     lens2 = Lens(surfaces=[
-        SphericalSurface(center=[0, 0, 120], radius=40,  n1=1.0, n2=1.5, diameter=50.0),
-        SphericalSurface(center=[0, 0, 140], radius=-40, n1=1.5, n2=1.3, diameter=50.0),
-        SphericalSurface(center=[0, 0, 145], radius=-120, n1=1.3, n2=1.0, diameter=50.0),
+        SphericalSurface(center=[0, 0, 120], radius=40,  n1=1.0, n2=1.5, diameter=45.0),
+        SphericalSurface(center=[0, 0, 140], radius=-40, n1=1.5, n2=1.3, diameter=45.0),
+        SphericalSurface(center=[0, 0, 145], radius=-120, n1=1.3, n2=1.0, diameter=45.0),
     ])
 
     # Example doublet lens 3 (3 surfaces: air | glass1 | glass2 | air)
@@ -574,7 +575,7 @@ if __name__ == '__main__':
     ]
 
     # g = RayGroup(rays)   # after you implement this
-    g = TruncatedLambertianSource2D(origin=[0, 0, 0], num_rays=50, wavelength=500, distribution='deterministic', plane='yz', half_angle_deg=13.5)
+    g = TruncatedLambertianSource2D(origin=[0, 0, 0], num_rays=50, wavelength=500, distribution='deterministic', plane='yz', half_angle_deg=90)
     tracer = Tracer(t_max=400.0, bracket_samples=1024, refine_iters=15, eps=1e-6)
 
     i = 10  # ray index you want to inspect

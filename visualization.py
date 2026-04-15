@@ -1,6 +1,10 @@
 from matplotlib import pyplot as plt
 import numpy as np
-from rays.ray import RayGroup
+from typing import Union, List
+from dataclasses import dataclass
+from elements.surfaces import Surface
+# from elements.lenses import Lens
+from rays.ray import Ray, RayGroup
 
 def wavelength_nm_to_rgb(wl):
     """
@@ -55,13 +59,112 @@ def wavelength_nm_to_rgb(wl):
 
     return (correct(r), correct(g), correct(b))
 
-class AxisPlotter:
-    def __init__(self, data):
-        self.data = data
+@dataclass
+class Lens:
+    surfaces: List  # ordered list of surfaces, front to back
 
-    def plot(self):
-        # Placeholder for plotting logic
-        print("Plotting data:", self.data)
+class Plotter:
+    """
+    Class for visualizing ray paths and lens surfaces in a 2D cross-sectional plot, or ray distributions in a plane normal to the optical axis.
+    """
+    def __init__(self, rays: Union[Ray, RayGroup], elements: Union[Lens, list], *args, **kwargs):
+        self.rays = rays
+        self.paths = rays.ray_paths
+        self.elements = elements
+        self.lenses = self.elements # if elements is a list of lenses, otherwise wrap in a list
+        self.max_r = None
+        self.colors = "wavelength" 
+
+    def set_focalpoint_visible(self, visible=True):
+        # Placeholder for toggling focal point visibility in the plot
+        pass
+
+    def set_principal_planes_visible(self, visible=True):
+        # Placeholder for toggling principal plane visibility in the plot
+        pass
+
+    def set_ray_paths_visible(self, visible=True):
+        # Placeholder for toggling ray path visibility in the plot
+        pass
+
+    def set_ray_colors(self, color_map='wavelength'):
+        # Placeholder for setting ray colors based on a color map (e.g., wavelength)
+        pass
+
+    def plot_cross_section(self):
+        """
+        lenses: list[Lens]
+        paths: (S, N, 3) array from Tracer.trace_group
+        """
+        fig, ax = plt.subplots(figsize=(10, 7))
+
+        # background / grid styling (similar to your existing code)
+        DARK_BG = '#0a0b0c'
+        LIGHT_BG = '#ffffff'
+        AXIS_COL = '#000000'
+        GRID_COL = "#cccccc"
+
+        fig.patch.set_facecolor(LIGHT_BG)
+        ax.set_facecolor(LIGHT_BG)
+        ax.grid(color=GRID_COL, linewidth=0.4, zorder=0)
+        for spine in ax.spines.values():
+            spine.set_color(GRID_COL)
+        ax.tick_params(axis='x', colors=GRID_COL)
+        ax.tick_params(axis='y', colors=GRID_COL)
+        ax.axhline(0, color=AXIS_COL, lw=0.5, alpha=0.35, zorder=1)
+
+        # ---- draw rays using paths ----
+        S, N, _ = self.paths.shape
+        colors = ['#4dbf6b']
+
+        for i in range(N):
+            p = self.paths[:, i, :]  # (S, 3) – sequence of points for ray i
+            # you may have NaNs for rays that stopped early; mask them
+            mask = ~np.isnan(p[:, 0])
+            if not np.any(mask):
+                continue
+            z = p[mask, 2]
+            y = p[mask, 1]
+            if self.colors == 'wavelength' and self.rays.wavelengths is not None:
+                wl = self.rays.wavelengths[i]
+                color = wavelength_nm_to_rgb(wl)
+            else:
+                color = colors[i % len(colors)]
+            ax.plot(z, y, color=color, lw=0.8, alpha=0.9)
+
+        # ---- draw surfaces ----
+        all_surfaces = [s for lens in self.lenses for s in lens.surfaces]
+        if self.max_r is None:
+            self.max_r = max(s.diameter for s in all_surfaces) / 2.0
+
+        n = 4000
+        # r = np.linspace(0, max_r, n)
+        for lens in self.lenses:
+            surf_zprofiles = []
+            for surface in lens.surfaces:
+                r = np.linspace(0, surface.diameter/2, n)
+                z = np.array([surface.sag(ri) for ri in r]) + surface.vertex[2]
+                surf_zprofiles.append(z)
+                ax.plot(z,  r, lw=0.5, color='black', alpha=0.9)
+                ax.plot(z, -r, lw=0.5, color='black', alpha=0.9)
+
+            # fill glass between surfaces in this lens
+            for i in range(1, len(lens.surfaces)):
+                z_prev = surf_zprofiles[i - 1]
+                z_curr = surf_zprofiles[i]
+                ax.fill_betweenx( r, z_prev, z_curr, color='lightblue', alpha=0.8)
+                ax.fill_betweenx(-r, z_prev, z_curr, color='lightblue', alpha=0.8)
+        ax.set_xlim(0, None)
+        ax.set_ylim(-1.25*self.max_r, 1.25*self.max_r)
+        ax.set_aspect('equal', adjustable='box')
+        ax.set_xlabel('Z')
+        ax.set_ylabel('Radius / Y')
+        ax.set_title('Vectorized Ray Propagation with Tracer')
+        plt.tight_layout()
+        return fig, ax
+   
+    def show(self):
+        plt.show()
 
 class NormalPlaneMap:
     """
