@@ -170,7 +170,7 @@ class NormalPlaneMap:
     """
     Class for visualizing ray distributions in a plane normal to the optical axis.
     """
-    def __init__(self, rays: RayGroup, z: float = 0, x_extents: tuple = (-50, 50), y_extents: tuple = (-50, 50), render_type: str = "points", reference_axis: str = "main"):
+    def __init__(self, rays: RayGroup, z: float = 0, x_extents: tuple = (-2, 2), y_extents: tuple = (-2, 2), render_type: str = "points", reference_axis: str = "main"):
         self.rays = rays
         self.ray_wavelengths = rays.wavelengths if rays.wavelengths is not None else np.full(len(rays), 550.0)  # default to green if no wavelengths
         self.location = z
@@ -306,6 +306,18 @@ class NormalPlaneMap:
         plt.xlabel("x")
         plt.ylabel("y")
         # plt.gca().set_aspect('equal', adjustable='box')  # optional, equal scaling
+        plt.show()
+
+    def histogram(self, bins=10):
+        # Placeholder for histogram logic
+        x = self.xy[:, 0]
+        y = self.xy[:, 1]
+
+        plt.figure()
+        plt.hist2d(x, y, bins=bins, cmap='viridis', range=[[self.xmin, self.xmax], [self.ymin, self.ymax]])
+        plt.xlabel("x")
+        plt.ylabel("y")
+        plt.colorbar(label='Count in bin')
         plt.show()
 
 if __name__ == "__main__":

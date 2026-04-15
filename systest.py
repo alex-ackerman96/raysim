@@ -52,7 +52,8 @@ paths, final_origins, final_dirs = tracer.trace([lens1, lens2], g)
 
 plane_map = NormalPlaneMap(rays=g, z=145)
 plane_map.xy_at_z()
-plane_map.plot()
+# plane_map.plot()
+plane_map.histogram(bins=50)
 
 p = Plotter(rays=g, elements=[lens1, lens2])
     # ---- plot result ----
