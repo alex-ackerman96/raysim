@@ -118,6 +118,7 @@ class RayGroup:
         self.ray_origins = None      # (N,3)
         self.ray_directions = None   # (N,3)
         self.ray_paths = None        # (S,N,3), filled by Tracer
+        self.wavelengths = None       # (N,)
         self._rays = None            # optional: keep original Ray objects
 
         if rays is not None:
@@ -137,6 +138,7 @@ class RayGroup:
 
         self.ray_origins = origins
         self.ray_directions = directions
+        self.wavelengths = np.array([r.wavelength for r in rays], dtype=float)
         self._rays = rays
 
     def propagate(self, distance):
@@ -153,15 +155,158 @@ class RayGroup:
         if np.any(mags == 0):
             raise ValueError("direction vectors cannot contain zeros")
 
-        self.origins = origins
-        self.directions = directions / mags[:, None]
+        self.ray_origins = origins
+        self.ray_directions = directions / mags[:, None]
 
-        self.i = self.directions[:, 0]
-        self.j = self.directions[:, 1]
-        self.k = self.directions[:, 2]
+        self.i = self.ray_directions[:, 0]
+        self.j = self.ray_directions[:, 1]
+        self.k = self.ray_directions[:, 2]
 
-class IdealLambertianSource(RayGroup):
-    pass
+class IdealAngularSource3D(RayGroup):
+    def __init__( self, origin, num_rays=1000, wavelength=550.0, angle = 30):
+        rays = []
+        for _ in range(num_rays):
+            theta_x = np.random.uniform(-angle/2, angle/2)
+            theta_y = np.random.uniform(-angle/2, angle/2)
+            ray = Ray(origin=origin, direction=[theta_x, theta_y], wavelength=wavelength)
+            rays.append(ray)
+        super().__init__(rays)
+
+class IdealLambertianSource3D(RayGroup):
+    def __init__(self, origin, num_rays=1000, wavelength=550.0,
+                 distribution='random'):
+
+        if distribution not in ['random', 'deterministic']:
+            raise ValueError("distribution must be 'random' or 'deterministic'")
+
+        rays = []
+
+        # 3D Lambertian / cosine-weighted hemisphere sampling
+        #
+        # PDF over solid angle:
+        # p(omega) = cos(theta) / pi
+        #
+        # In spherical coordinates:
+        # phi   = 2*pi*v
+        # theta = arcsin(sqrt(u))
+        #
+        # where u,v are uniform on [0,1].
+
+        if distribution == 'random':
+            u = np.random.uniform(0.0, 1.0, size=num_rays)
+            v = np.random.uniform(0.0, 1.0, size=num_rays)
+        else:
+            # Deterministic smooth sampling:
+            # evenly spaced quantiles in theta-distribution,
+            # evenly spaced azimuth samples
+            u = (np.arange(num_rays) + 0.5) / num_rays
+            golden_ratio_conjugate = (np.sqrt(5.0) - 1.0) / 2.0
+            v = (np.arange(num_rays) * golden_ratio_conjugate) % 1.0
+
+        theta = np.arcsin(np.sqrt(u))      # polar angle from +z normal
+        phi = 2.0 * np.pi * v              # azimuth angle
+
+        # Convert to Cartesian direction cosines
+        dx = np.sin(theta) * np.cos(phi)
+        dy = np.sin(theta) * np.sin(phi)
+        dz = np.cos(theta)
+
+        # Convert to projected angular representation relative to +z
+        theta_x = np.degrees(np.arctan2(dx, dz))
+        theta_y = np.degrees(np.arctan2(dy, dz))
+
+        for tx, ty in zip(theta_x, theta_y):
+            ray = Ray(
+                origin=origin,
+                direction=[tx, ty],
+                wavelength=wavelength
+            )
+            rays.append(ray)
+
+        super().__init__(rays)
+
+class AngularSource2D(RayGroup):
+    def __init__(self, origin, num_rays=1000, wavelength=550.0, distribution='random', plane='xz'):
+
+        if plane not in ['xz', 'yz']:
+            raise ValueError("plane must be 'xz' or 'yz'")
+
+        if distribution not in ['random', 'uniform']:
+            raise ValueError("distribution must be 'random' or 'uniform'")
+
+        rays = []
+
+        if distribution == 'random':
+            theta = np.random.uniform(0, 1, num_rays)
+        elif distribution == 'uniform':
+            theta = np.linspace(-90.0, 90.0, num_rays)
+
+        if plane == 'xz':
+            for theta_x in theta:
+                ray = Ray(origin=origin, direction=[theta_x, 0.0], wavelength=wavelength)
+                rays.append(ray)
+
+        elif plane == 'yz':
+            for theta_y in theta:
+                ray = Ray(origin=origin, direction=[0.0, theta_y], wavelength=wavelength)
+                rays.append(ray)
+
+        super().__init__(rays)
+
+import numpy as np
+
+class IdealLambertianSource2D(RayGroup):
+    def __init__(self, origin, num_rays=1000, wavelength=550.0, distribution='random', plane='xz'):
+
+        if plane not in ['xz', 'yz']:
+            raise ValueError("plane must be 'xz' or 'yz'")
+
+        if distribution not in ['random', 'deterministic']:
+            raise ValueError("distribution must be 'random' or 'deterministic'")
+
+        rays = []
+
+        # 2D Lambertian angular PDF:
+        # p(theta) = cos(theta) / 2,  theta in [-pi/2, pi/2]
+        #
+        # CDF:
+        # F(theta) = (sin(theta) + 1) / 2
+        #
+        # Inverse CDF:
+        # theta = arcsin(2u - 1)
+
+        if distribution == 'random':
+            # Monte Carlo Lambertian sampling
+            u = np.random.uniform(0.0, 1.0, size=num_rays)
+        else:
+            # Smooth deterministic Lambertian sampling:
+            # evenly spaced quantiles in cumulative probability
+            u = (np.arange(num_rays) + 0.5) / num_rays
+
+        theta = np.degrees(np.arcsin(2.0 * u - 1.0))
+
+        # Optional: sort for cleaner fan plotting
+        theta = np.sort(theta)
+
+        if plane == 'xz':
+            for theta_x in theta:
+                ray = Ray(
+                    origin=origin,
+                    direction=[theta_x, 0.0],
+                    wavelength=wavelength
+                )
+                rays.append(ray)
+
+        else:  # plane == 'yz'
+            for theta_y in theta:
+                ray = Ray(
+                    origin=origin,
+                    direction=[0.0, theta_y],
+                    wavelength=wavelength
+                )
+                rays.append(ray)
+
+        super().__init__(rays)
 
 class ExtendedLambertianSource(RayGroup):
     pass
@@ -172,18 +317,6 @@ class IdealHomogenousBeam(RayGroup):
 class IdealGaussianBeam(RayGroup):
     pass
 
-class RayPlaneMap:
-    """
-    Array of rays in plane normal to optical axis at location z along optical axis,
-    with ray parameters (x, y, theta_x, theta_y, wavelength) where theta_x and theta_y
-    are angles with respect to the optical axis in x and y directions respectively.
-
-     """
-    def __init__(self, rays : Union[Ray, list[Ray], RayGroup], z : float = 0):
-        self.location = z
-
-    def get_stokes_parameters(self):
-        pass
 
 if __name__ == "__main__":
     r1 = Ray(origin=[0, 0, 0], direction=[45, 45])

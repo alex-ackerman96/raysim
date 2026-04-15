@@ -1,6 +1,6 @@
 from tracer import Tracer
-from visualization import PlaneMap
-from rays.ray import Ray, RayGroup
+from visualization import NormalPlaneMap
+from rays.ray import Ray, RayGroup, IdealLambertianSource3D
 from elements.surfaces import AsphericSurface, PlanarSurface, SphericalSurface
 from dataclasses import dataclass
 from typing import List
@@ -39,12 +39,16 @@ rays = [
     Ray(origin=[0,  15, 0], direction=[0,  0.3, 1]),
     Ray(origin=[0,  15, 0], direction=[0,  0.0, 1]),
     Ray(origin=[0,  15, 0], direction=[0, -0.3, 1]),
+    Ray(origin=[-15, -15, 0], direction=[0,  0.3, 1]),
+    Ray(origin=[-15, -15, 0], direction=[0,  0.0, 1]),
+    Ray(origin=[-15, -15, 0], direction=[0, -0.3, 1]),
 ]
 
-g = RayGroup(rays)   # after you implement this
+# g = RayGroup(rays)   # after you implement this
+g = IdealLambertianSource3D(origin=[0, 0, 0], num_rays=10000, wavelength=500)
 tracer = Tracer()
 paths, final_origins, final_dirs = tracer.trace([lens1, lens2], g)
 
-plane_map = PlaneMap(rays=g, z=70)
+plane_map = NormalPlaneMap(rays=g, z=70)
 plane_map.xy_at_z()
 plane_map.plot()

@@ -1,7 +1,7 @@
 import numpy as np
 import matplotlib.pyplot as plt
 from elements.surfaces import AsphericSurface, PlanarSurface, SphericalSurface
-from rays.ray import RayGroup, Ray
+from rays.ray import RayGroup, Ray, IdealLambertianSource3D, IdealLambertianSource2D
 from dataclasses import dataclass
 from typing import List
 
@@ -71,36 +71,95 @@ class Tracer:
 
     # ---------- bracketing ----------
 
-    def bracket_roots(self, surface, origins, directions):
-        """
-        Coarse bracket search along each ray to find [a,b] where F changes sign.
-        origins, directions: (N, 3)
-        returns:
-            hit_mask: (N,) bool, True where a sign change exists
-            a, b: (N,) floats, bracket endpoints (NaN where no hit)
-        """
+    def bracket_roots(self, surface, origins, directions,
+                    base_pad=5.0,
+                    samples_per_pass=128,
+                    max_expansions=10,
+                    growth=1.8,
+                    near_zero_tol=1e-7,
+                    debug=False):
         N = origins.shape[0]
-        t_grid = np.linspace(0.0, self.t_max, self.bracket_samples)   # (S,)
-        S = t_grid.size
+        z_v = float(surface.vertex[2])
 
-        # Evaluate F at each t for all rays: shape (S, N)
-        F_vals = np.empty((S, N), dtype=float)
-        for s, t in enumerate(t_grid):
-            F_vals[s] = self.F(surface, origins, directions, t)
-
-        # sign changes along t: shape (S-1, N)
-        sign_prod = np.sign(F_vals[:-1]) * np.sign(F_vals[1:])
-        crosses = sign_prod <= 0   # True where there's a sign change
-
-        # For each ray, pick first index where crossing occurs
-        hit_mask = crosses.any(axis=0)                  # (N,)
-        idx_lo = np.where(hit_mask, crosses.argmax(axis=0), -1)  # (N,)
-
+        hit_mask = np.zeros(N, dtype=bool)
         a = np.full(N, np.nan, dtype=float)
         b = np.full(N, np.nan, dtype=float)
-        valid = idx_lo >= 0
-        a[valid] = t_grid[idx_lo[valid]]
-        b[valid] = t_grid[idx_lo[valid] + 1]
+
+        oz = origins[:, 2]
+        dz = directions[:, 2]
+
+        valid = np.abs(dz) > 1e-12
+        t_plane = np.full(N, np.nan, dtype=float)
+        t_plane[valid] = (z_v - oz[valid]) / dz[valid]
+        valid &= (t_plane >= 0.0)
+
+        for i in np.where(valid)[0]:
+            d_i = directions[i]
+            o_i = origins[i:i+1]
+            d_i2 = directions[i:i+1]
+
+            cosz = abs(d_i[2])
+            pad = base_pad / max(cosz, 0.1)
+
+            found = False
+            best_a = np.nan
+            best_b = np.nan
+            best_t = np.nan
+            best_absF = np.inf
+
+            for _ in range(max_expansions):
+                left = max(0.0, t_plane[i] - pad)
+                right = t_plane[i] + pad
+                t_grid = np.linspace(left, right, samples_per_pass)
+
+                F_vals = np.array([self.F(surface, o_i, d_i2, t)[0] for t in t_grid], dtype=float)
+
+                finite = np.isfinite(F_vals)
+                if np.count_nonzero(finite) < 2:
+                    pad *= growth
+                    continue
+
+                t_valid = t_grid[finite]
+                f_valid = F_vals[finite]
+                absf = np.abs(f_valid)
+
+                jmin = np.argmin(absf)
+                if absf[jmin] < best_absF:
+                    best_absF = absf[jmin]
+                    best_t = t_valid[jmin]
+
+                zero_idx = np.where(absf < near_zero_tol)[0]
+                if zero_idx.size > 0:
+                    j = zero_idx[0]
+                    j0 = max(j - 1, 0)
+                    j1 = min(j + 1, len(t_valid) - 1)
+                    best_a = t_valid[j0]
+                    best_b = t_valid[j1]
+                    found = True
+                    break
+
+                sign_prod = np.sign(f_valid[:-1]) * np.sign(f_valid[1:])
+                crosses = sign_prod <= 0
+                if np.any(crosses):
+                    j = np.argmax(crosses)
+                    best_a = t_valid[j]
+                    best_b = t_valid[j + 1]
+                    found = True
+                    break
+
+                pad *= growth
+
+            if (not found) and np.isfinite(best_t) and best_absF < near_zero_tol:
+                best_a = max(0.0, best_t - 1e-3)
+                best_b = best_t + 1e-3
+                found = True
+
+            if found:
+                hit_mask[i] = True
+                a[i] = best_a
+                b[i] = best_b
+            elif debug:
+                print(f"[bracket miss] ray={i}, t_plane={t_plane[i]:.6f}, best_absF={best_absF:.3e}")
 
         return hit_mask, a, b
 
@@ -133,23 +192,19 @@ class Tracer:
     # ---------- normals ----------
 
     def surface_normal(self, surface, hit_points):
-        """
-        Finite-difference normal for sagged surface at hit_points.
-        hit_points: (M, 3)
-        returns: normals: (M, 3)
-        """
-        eps = self.eps
+        eps0 = self.eps
         x = hit_points[:, 0] - surface.vertex[0]
         y = hit_points[:, 1] - surface.vertex[1]
+        r = np.sqrt(x**2 + y**2)
 
-        # x-perturbation
+        eps = np.maximum(eps0, 1e-3 * np.maximum(r, 1.0))
+
         r_xp = np.sqrt((x + eps)**2 + y**2)
         r_xm = np.sqrt((x - eps)**2 + y**2)
         sag_xp = surface.sag(r_xp)
         sag_xm = surface.sag(r_xm)
         dsag_dx = (sag_xp - sag_xm) / (2 * eps)
 
-        # y-perturbation
         r_yp = np.sqrt(x**2 + (y + eps)**2)
         r_ym = np.sqrt(x**2 + (y - eps)**2)
         sag_yp = surface.sag(r_yp)
@@ -250,94 +305,127 @@ class Tracer:
 
     # ---------- high-level trace ----------
 
-    def trace_group(self, lenses, origins, directions, refracted_length=300.0):
-        """
-        Trace a group of rays through an ordered list of Lens objects.
+    def trace_group(self, lenses, origins, directions, output_z=None):
+        # normalize input
+        origins = np.asarray(origins, dtype=float).reshape(-1, 3).copy()
+        directions = np.asarray(directions, dtype=float).reshape(-1, 3).copy()
 
-        lenses: list of Lens, each with .surfaces (front-to-back).
-        origins, directions: (N,3) initial ray positions and unit directions.
-
-        returns:
-            paths: (S, N, 3) array of ray positions at each step (including start)
-            final_origins: (N,3)
-            final_directions: (N,3)
-        """
-        origins = np.asarray(origins, dtype=float).reshape(-1, 3)
-        directions = np.asarray(directions, dtype=float).reshape(-1, 3)
-
-        N = origins.shape[0]
-        # normalize directions
         mags = np.linalg.norm(directions, axis=1)
         if np.any(mags == 0):
             raise ValueError("direction vectors cannot be zero")
         directions = directions / mags[:, None]
 
-        # collect surfaces in order
+        N = origins.shape[0]
         surfaces = [s for lens in lenses for s in lens.surfaces]
 
-        # path history: list of (N,3)
+        if output_z is None:
+            # default output plane a little beyond last surface vertex
+            output_z = max(s.vertex[2] for s in surfaces) + 20.0
+
+        # all rays start active
+        active = np.ones(N, dtype=bool)
         path_list = [origins.copy()]
 
+        # march through each surface
         for surface in surfaces:
-            hit_mask, t_hit, hit_points, normals = self.intersect_surface_group(surface, origins, directions)
-
-            if not hit_mask.any():
-                # no ray hits this surface, propagate all rays forward and stop
-                origins = origins + refracted_length * directions
-                path_list.append(origins.copy())
+            if not np.any(active):
                 break
 
-            # update origins for hit rays to their hit points
-            origins[hit_mask] = hit_points[hit_mask]
+            active_idx = np.where(active)[0]
+            o_act = origins[active]
+            d_act = directions[active]
 
-            # refract only hit rays
-            new_dirs, tir = self.refract_group(directions[hit_mask], normals[hit_mask], surface.n1, surface.n2)
+            hit_mask_local, t_hit, hit_points, normals = self.intersect_surface_group(
+                surface, o_act, d_act
+            )
 
-            # mark TIR rays as having no new direction; here we just leave them as NaN
-            # you could alternatively reflect them or stop them
-            directions[hit_mask] = new_dirs
+            # --- deactivate misses at this surface ---
+            miss_idx_global = active_idx[~hit_mask_local]
+            active[miss_idx_global] = False
 
+            # --- process hits ---
+            if np.any(hit_mask_local):
+                hit_idx_global = active_idx[hit_mask_local]
+
+                # update positions at the surface
+                origins[hit_idx_global] = hit_points[hit_mask_local]
+
+                # compute refracted directions at this surface
+                new_dirs, tir = self.refract_group(
+                    d_act[hit_mask_local],
+                    normals[hit_mask_local],
+                    surface.n1,
+                    surface.n2
+                )
+
+                # keep only non-TIR, finite directions
+                valid_refract = (~tir) & (~np.isnan(new_dirs).any(axis=1))
+
+                # update directions for valid refracted rays
+                refr_idx_global = hit_idx_global[valid_refract]
+                directions[refr_idx_global] = new_dirs[valid_refract]
+
+                # deactivate TIR / invalid rays
+                tir_idx_global = hit_idx_global[~valid_refract]
+                active[tir_idx_global] = False
+
+            # record state after this surface
             path_list.append(origins.copy())
 
-        paths = np.stack(path_list, axis=0)  # (S, N, 3)
+        # --- final propagation for all remaining active rays to output_z ---
+        z0 = origins[:, 2]
+        dz = directions[:, 2]
+
+        final_points = origins.copy()
+        valid = np.abs(dz) > 1e-12
+        t_out = np.full(N, np.nan, dtype=float)
+        t_out[valid] = (output_z - z0[valid]) / dz[valid]
+
+        forward = valid & (t_out >= 0.0)
+        final_points[forward] = origins[forward] + t_out[forward, None] * directions[forward]
+
+        path_list.append(final_points.copy())
+        origins = final_points
+
+        paths = np.stack(path_list, axis=0)
         return paths, origins, directions
-    def trace(self, lenses, rays, refracted_length=300.0):
+    
+
+    def trace(self, lenses, rays, output_z=None):
         """
         Generic entry point: accepts a single Ray, a list[Ray], or a RayGroup.
 
         Returns:
             paths, final_origins, final_directions
         """
-        # single Ray
         if isinstance(rays, Ray):
             origins, directions = self._from_ray(rays)
             paths, final_origins, final_dirs = self.trace_group(
-                lenses, origins, directions, refracted_length=refracted_length
+                lenses, origins, directions, output_z=output_z
             )
             self._update_ray_from_arrays(rays, paths, final_origins, final_dirs)
             return paths, final_origins, final_dirs
 
-        # RayGroup
         if isinstance(rays, RayGroup):
             origins, directions = self._from_raygroup(rays)
             paths, final_origins, final_dirs = self.trace_group(
-                lenses, origins, directions, refracted_length=refracted_length
+                lenses, origins, directions, output_z=output_z
             )
             self._update_raygroup_from_arrays(rays, paths, final_origins, final_dirs)
             return paths, final_origins, final_dirs
 
-        # list/tuple of Ray objects
         if isinstance(rays, (list, tuple)) and all(isinstance(r, Ray) for r in rays):
             origins = np.vstack([r.origin for r in rays])
             directions = np.vstack([r.direction for r in rays])
             paths, final_origins, final_dirs = self.trace_group(
-                lenses, origins, directions, refracted_length=refracted_length
+                lenses, origins, directions, output_z=output_z
             )
-            # push back into Ray objects
+
             S, N, _ = paths.shape
             for i, ray in enumerate(rays):
                 ray.set_state(final_origins[i], final_dirs[i])
                 ray.path = [paths[s, i, :].copy() for s in range(S)]
+
             return paths, final_origins, final_dirs
 
         raise TypeError("rays must be Ray, RayGroup, or list[Ray]")
@@ -380,6 +468,21 @@ def plot_lens_and_rays(lenses, paths, max_r=None):
     ax.tick_params(axis='y', colors=GRID_COL)
     ax.axhline(0, color=AXIS_COL, lw=0.5, alpha=0.35, zorder=1)
 
+    # ---- draw rays using paths ----
+    S, N, _ = paths.shape
+    colors = ['#4dbf6b']
+
+    for i in range(N):
+        p = paths[:, i, :]  # (S, 3) – sequence of points for ray i
+        # you may have NaNs for rays that stopped early; mask them
+        mask = ~np.isnan(p[:, 0])
+        if not np.any(mask):
+            continue
+        z = p[mask, 2]
+        y = p[mask, 1]
+        color = colors[i % len(colors)]
+        ax.plot(z, y, color=color, lw=0.8, alpha=0.9)
+
     # ---- draw surfaces ----
     all_surfaces = [s for lens in lenses for s in lens.surfaces]
     if max_r is None:
@@ -399,24 +502,10 @@ def plot_lens_and_rays(lenses, paths, max_r=None):
         for i in range(1, len(lens.surfaces)):
             z_prev = surf_zprofiles[i - 1]
             z_curr = surf_zprofiles[i]
-            ax.fill_betweenx( r, z_prev, z_curr, color='lightblue', alpha=0.3)
-            ax.fill_betweenx(-r, z_prev, z_curr, color='lightblue', alpha=0.3)
-
-    # ---- draw rays using paths ----
-    S, N, _ = paths.shape
-    colors = ['#4dbf6b']
-
-    for i in range(N):
-        p = paths[:, i, :]  # (S, 3) – sequence of points for ray i
-        # you may have NaNs for rays that stopped early; mask them
-        mask = ~np.isnan(p[:, 0])
-        if not np.any(mask):
-            continue
-        z = p[mask, 2]
-        y = p[mask, 1]
-        color = colors[i % len(colors)]
-        ax.plot(z, y, color=color, lw=0.8, alpha=0.9)
-
+            ax.fill_betweenx( r, z_prev, z_curr, color='lightblue', alpha=0.8)
+            ax.fill_betweenx(-r, z_prev, z_curr, color='lightblue', alpha=0.8)
+    ax.set_xlim(0, None)
+    ax.set_ylim(-1.1*max_r, 1.1*max_r)
     ax.set_aspect('equal', adjustable='box')
     ax.set_xlabel('Z')
     ax.set_ylabel('Radius / Y')
@@ -428,15 +517,16 @@ def plot_lens_and_rays(lenses, paths, max_r=None):
 if __name__ == '__main__':
 
     lens1 = Lens(surfaces=[
-        SphericalSurface(center=[0, 0, 40], radius=60,  n1=1.0, n2=1.5, diameter=50.0),
-        SphericalSurface(center=[0, 0, 55], radius=-60, n1=1.5, n2=1.0, diameter=50.0),
+        AsphericSurface(vertex=[0, 0, 90], radius=30, conic=-1.1, aspheric_coeffs=[0.15e-6, -0.15e-8, -1e-11], n1=1.0, n2=1.5, diameter=40.0),
+        # SphericalSurface(center=[0, 0, 90], radius=60,  n1=1.0, n2=1.5, diameter=50.0),
+        SphericalSurface(center=[0, 0, 110], radius=-60, n1=1.5, n2=1.0, diameter=50.0),
     ])
 
     # Singlet lens 2
     lens2 = Lens(surfaces=[
-        SphericalSurface(center=[0, 0, 80], radius=40,  n1=1.0, n2=1.5, diameter=40.0),
-        SphericalSurface(center=[0, 0, 97], radius=-40, n1=1.5, n2=1.8, diameter=40.0),
-        SphericalSurface(center=[0, 0, 100], radius=-120, n1=1.8, n2=1.0, diameter=40.0),
+        SphericalSurface(center=[0, 0, 120], radius=40,  n1=1.0, n2=1.5, diameter=40.0),
+        SphericalSurface(center=[0, 0, 140], radius=-40, n1=1.5, n2=1.3, diameter=40.0),
+        SphericalSurface(center=[0, 0, 145], radius=-120, n1=1.3, n2=1.0, diameter=40.0),
     ])
 
     # Example doublet lens 3 (3 surfaces: air | glass1 | glass2 | air)
@@ -461,9 +551,10 @@ if __name__ == '__main__':
         Ray(origin=[0,  15, 0], direction=[0, -0.3, 1]),
     ]
 
-    g = RayGroup(rays)   # after you implement this
-    tracer = Tracer()
-    paths, final_origins, final_dirs = tracer.trace([lens1, lens2], g)
+    # g = RayGroup(rays)   # after you implement this
+    g = IdealLambertianSource2D(origin=[0, 0, 0], num_rays=1000, wavelength=500, distribution='uniform', plane='yz')
+    tracer = Tracer(t_max=400.0, bracket_samples=1024, refine_iters=15, eps=1e-6)
+    paths, final_origins, final_dirs = tracer.trace([lens1, lens2], g, output_z=200.0)
     
 
 # g.ray_origins, g.ray_directions, g.ray_paths now hold the ray bundle state.
