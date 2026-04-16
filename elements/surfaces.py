@@ -1,95 +1,119 @@
-import numpy as np
-from scipy.optimize import root_scalar
+# import numpy as np
+# from scipy.optimize import root_scalar
 
-class Surface:
-    def __init__(self, center, radius, material1, material2, diameter):
-        self.center = np.array(center)
-        self.radius = radius
-        self.mat1 = material1  # material before surface
-        self.mat2 = material2  # material after surface
-        self.diameter = diameter  # Fixed diameter of the lens surface
+# class Surface:
+#     def __init__(self, center, radius, material1, material2, diameter):
+#         self.center = np.array(center)
+#         self.radius = radius
+#         self.mat1 = material1  # material before surface
+#         self.mat2 = material2  # material after surface
+#         self.diameter = diameter  # Fixed diameter of the lens surface
 
-class PlanarSurface(Surface):
-    def __init__(self, center, normal, n1, n2, diameter):
-        super().__init__(center, radius=None, material1=n1, material2=n2, diameter=diameter)
-        # For a plane, radius is not used; we store the normal instead
-        self.normal = np.array(normal) / np.linalg.norm(normal)  # normalize
-        self.sag = lambda r: 0  # Planar surface has zero sag
-        self.n1 = n1
-        self.n2 = n2
+# class PlanarSurface(Surface):
+#     def __init__(self, center, normal, n1, n2, diameter):
+#         super().__init__(center, radius=None, material1=n1, material2=n2, diameter=diameter)
+#         # For a plane, radius is not used; we store the normal instead
+#         self.normal = np.array(normal) / np.linalg.norm(normal)  # normalize
+#         self.sag = lambda r: 0  # Planar surface has zero sag
+#         self.n1 = n1
+#         self.n2 = n2
 
-    @property
-    def vertex(self):
-        return self.center
+#     @property
+#     def vertex(self):
+#         return self.center
 
-    def intersect(self, ray):
-        # Plane equation: (P - center) · normal = 0
-        oc = ray.origin - self.center
-        denom = np.dot(self.normal, ray.direction)
+#     def intersect(self, ray):
+#         # Plane equation: (P - center) · normal = 0
+#         oc = ray.origin - self.center
+#         denom = np.dot(self.normal, ray.direction)
 
-        # If ray is nearly parallel to the plane, no intersection
-        if abs(denom) < 1e-10:
-            return None, None
+#         # If ray is nearly parallel to the plane, no intersection
+#         if abs(denom) < 1e-10:
+#             return None, None
 
-        t = -np.dot(self.normal, oc) / denom
+#         t = -np.dot(self.normal, oc) / denom
 
-        if t < 0:
-            return None, None  # Intersection behind the ray origin
+#         if t < 0:
+#             return None, None  # Intersection behind the ray origin
 
-        intersection = ray.origin + t * ray.direction
+#         intersection = ray.origin + t * ray.direction
 
-        # Check if intersection is within the lens diameter
-        radial_distance = np.linalg.norm(intersection[:2] - self.center[:2])
-        if radial_distance > self.diameter / 2:
-            return None, None
+#         # Check if intersection is within the lens diameter
+#         radial_distance = np.linalg.norm(intersection[:2] - self.center[:2])
+#         if radial_distance > self.diameter / 2:
+#             return None, None
 
-        # The normal is constant for a plane
-        normal = self.normal
-        return intersection, normal
+#         # The normal is constant for a plane
+#         normal = self.normal
+#         return intersection, normal
 
 
-class SphericalSurface(Surface):
-    def __init__(self, center, radius, n1, n2, diameter):
-        super().__init__(center, radius, material1=n1, material2=n2, diameter=diameter)
-        self.n1 = n1
-        self.n2 = n2
+# class SphericalSurface(Surface):
+#     def __init__(self, center, radius, n1, n2, diameter):
+#         super().__init__(center, radius, material1=n1, material2=n2, diameter=diameter)
+#         self.n1 = n1
+#         self.n2 = n2
 
-    @property
-    def vertex(self):
-        return self.center
+#     @property
+#     def vertex(self):
+#         return self.center
     
-    def sag(self, r):
-        r2 = np.asarray(r)
-        arg = np.clip(self.radius**2 - r2**2, 0, None)  # clamp negatives to 0
-        return self.radius - np.sign(self.radius) * np.sqrt(arg)
+#     def sag(self, r):
+#         r2 = np.asarray(r)
+#         arg = np.clip(self.radius**2 - r2**2, 0, None)  # clamp negatives to 0
+#         return self.radius - np.sign(self.radius) * np.sqrt(arg)
 
-    def intersect(self, ray):
-        oc = ray.origin - self.center
-        a = np.dot(ray.direction, ray.direction)
-        b = 2.0 * np.dot(oc, ray.direction)
-        c = np.dot(oc, oc) - self.radius**2
-        discriminant = b**2 - 4*a*c
+#     def intersect(self, ray):
+#         oc = ray.origin - self.center
+#         a = np.dot(ray.direction, ray.direction)
+#         b = 2.0 * np.dot(oc, ray.direction)
+#         c = np.dot(oc, oc) - self.radius**2
+#         discriminant = b**2 - 4*a*c
         
-        if discriminant < 0:
-            return None, None  # No intersection
+#         if discriminant < 0:
+#             return None, None  # No intersection
         
-        t = (-b - np.sqrt(discriminant)) / (2.0*a)
-        if t < 0:
-            t = (-b + np.sqrt(discriminant)) / (2.0*a)
+#         t = (-b - np.sqrt(discriminant)) / (2.0*a)
+#         if t < 0:
+#             t = (-b + np.sqrt(discriminant)) / (2.0*a)
         
-        if t < 0:
-            return None, None  # Intersection behind the ray origin
+#         if t < 0:
+#             return None, None  # Intersection behind the ray origin
         
-        intersection = ray.origin + t * ray.direction
+#         intersection = ray.origin + t * ray.direction
         
-        # Check if the intersection is within the lens diameter
-        radial_distance = np.linalg.norm(intersection[:2] - self.center[:2])
-        if radial_distance > self.diameter / 2:
-            return None, None
+#         # Check if the intersection is within the lens diameter
+#         radial_distance = np.linalg.norm(intersection[:2] - self.center[:2])
+#         if radial_distance > self.diameter / 2:
+#             return None, None
         
-        normal = (intersection - self.center) / self.radius
-        return intersection, normal
+#         normal = (intersection - self.center) / self.radius
+#         return intersection, normal
 
+# # class AsphericSurface:
+# #     def __init__(self, vertex, radius, conic, aspheric_coeffs, n1, n2, diameter):
+# #         self.vertex = np.array(vertex, dtype=float)
+# #         self.radius = float(radius)
+# #         self.conic = float(conic)
+# #         self.aspheric_coeffs = list(aspheric_coeffs)
+# #         self.n1 = float(n1)
+# #         self.n2 = float(n2)
+# #         self.diameter = float(diameter)
+
+# #     def sag(self, r):
+# #         r = np.asarray(r, dtype=float)
+# #         c = 1.0 / self.radius
+
+# #         arg = 1.0 - (1.0 + self.conic) * (c**2) * (r**2)
+# #         arg = np.clip(arg, 0.0, None)
+
+# #         base = (c * r**2) / (1.0 + np.sqrt(arg))
+
+# #         z = base.copy() if isinstance(base, np.ndarray) else base
+# #         for i, a in enumerate(self.aspheric_coeffs):
+# #             z = z + a * r**(2 * (i + 2))
+
+# #         return z
 # class AsphericSurface:
 #     def __init__(self, vertex, radius, conic, aspheric_coeffs, n1, n2, diameter):
 #         self.vertex = np.array(vertex, dtype=float)
@@ -103,66 +127,148 @@ class SphericalSurface(Surface):
 #     def sag(self, r):
 #         r = np.asarray(r, dtype=float)
 #         c = 1.0 / self.radius
-
 #         arg = 1.0 - (1.0 + self.conic) * (c**2) * (r**2)
 #         arg = np.clip(arg, 0.0, None)
 
 #         base = (c * r**2) / (1.0 + np.sqrt(arg))
-
 #         z = base.copy() if isinstance(base, np.ndarray) else base
+
 #         for i, a in enumerate(self.aspheric_coeffs):
 #             z = z + a * r**(2 * (i + 2))
 
 #         return z
-class AsphericSurface:
-    def __init__(self, vertex, radius, conic, aspheric_coeffs, n1, n2, diameter):
-        self.vertex = np.array(vertex, dtype=float)
-        self.radius = float(radius)
-        self.conic = float(conic)
-        self.aspheric_coeffs = list(aspheric_coeffs)
-        self.n1 = float(n1)
-        self.n2 = float(n2)
-        self.diameter = float(diameter)
+
+#     # def intersect(self, ray):
+#     #     def f(t):
+#     #         p = ray.origin + t * ray.direction
+#     #         r = np.sqrt(np.sum((p[:2] - self.vertex[:2])**2))
+#     #         return p[2] - self.vertex[2] - self.sag(r)
+
+#     #     result = root_scalar(f, bracket=[0, 100], method='brentq')
+#     #     if not result.converged:
+#     #         return None, None
+
+#     #     t = result.root
+#     #     intersection = ray.origin + t * ray.direction
+        
+#     #     # Check if the intersection is within the lens diameter
+#     #     radial_distance = np.linalg.norm(intersection[:2] - self.vertex[:2])
+#     #     if radial_distance > self.diameter / 2:
+#     #         return None, None
+        
+#     #     r = np.sqrt(np.sum((intersection[:2] - self.vertex[:2])**2))
+        
+#     #     # Compute normal numerically
+#     #     epsilon = 1e-6
+#     #     dr = np.array([epsilon, 0, self.sag(r+epsilon) - self.sag(r)])
+#     #     dtheta = np.array([0, epsilon, self.sag(r) - self.sag(np.sqrt(r**2 - epsilon**2))])
+#     #     normal = np.cross(dr, dtheta)
+#     #     normal /= np.linalg.norm(normal)
+
+#     #     return intersection, normal
+
+# import numpy as np  # replaced with backend-aware import
+from backend import np
+import numpy as _np_cpu
+from scipy.optimize import root_scalar
+
+
+class Surface:
+    def __init__(self, center, radius, material1, material2, diameter):
+        self.center = _np_cpu.array(center, dtype=float)  # always CPU — surface geometry is metadata
+        self.radius = radius
+        self.mat1 = material1
+        self.mat2 = material2
+        self.diameter = diameter
+
+
+class PlanarSurface(Surface):
+    def __init__(self, center, normal, n1, n2, diameter):
+        super().__init__(center, radius=None, material1=n1, material2=n2, diameter=diameter)
+        self.normal = _np_cpu.array(normal, dtype=float)
+        self.normal /= _np_cpu.linalg.norm(self.normal)
+        self.n1 = n1
+        self.n2 = n2
+
+    @property
+    def vertex(self):
+        return self.center
 
     def sag(self, r):
-        r = np.asarray(r, dtype=float)
-        c = 1.0 / self.radius
+        # Planar surface has zero sag — return same type/shape as r
+        return np.zeros_like(np.asarray(r, dtype=float))
+
+    def intersect(self, ray):
+        oc = ray.origin - self.center
+        denom = _np_cpu.dot(self.normal, ray.direction)
+        if abs(denom) < 1e-10:
+            return None, None
+        t = -_np_cpu.dot(self.normal, oc) / denom
+        if t < 0:
+            return None, None
+        intersection = ray.origin + t * ray.direction
+        radial_distance = _np_cpu.linalg.norm(intersection[:2] - self.center[:2])
+        if radial_distance > self.diameter / 2:
+            return None, None
+        return intersection, self.normal
+
+
+class SphericalSurface(Surface):
+    def __init__(self, center, radius, n1, n2, diameter):
+        super().__init__(center, radius, material1=n1, material2=n2, diameter=diameter)
+        self.n1 = n1
+        self.n2 = n2
+
+    @property
+    def vertex(self):
+        return self.center
+
+    def sag(self, r):
+        r2  = np.asarray(r, dtype=float)
+        arg = np.clip(self.radius**2 - r2**2, 0, None)
+        return self.radius - np.sign(self.radius) * np.sqrt(arg)
+
+    def intersect(self, ray):
+        oc = ray.origin - self.center
+        a  = _np_cpu.dot(ray.direction, ray.direction)
+        b  = 2.0 * _np_cpu.dot(oc, ray.direction)
+        c  = _np_cpu.dot(oc, oc) - self.radius**2
+        discriminant = b**2 - 4*a*c
+        if discriminant < 0:
+            return None, None
+        t = (-b - _np_cpu.sqrt(discriminant)) / (2.0*a)
+        if t < 0:
+            t = (-b + _np_cpu.sqrt(discriminant)) / (2.0*a)
+        if t < 0:
+            return None, None
+        intersection = ray.origin + t * ray.direction
+        radial_distance = _np_cpu.linalg.norm(intersection[:2] - self.center[:2])
+        if radial_distance > self.diameter / 2:
+            return None, None
+        normal = (intersection - self.center) / self.radius
+        return intersection, normal
+
+
+class AsphericSurface:
+    def __init__(self, vertex, radius, conic, aspheric_coeffs, n1, n2, diameter):
+        self.vertex           = _np_cpu.array(vertex, dtype=float)  # always CPU metadata
+        self.radius           = float(radius)
+        self.conic            = float(conic)
+        self.aspheric_coeffs  = list(aspheric_coeffs)
+        self.n1               = float(n1)
+        self.n2               = float(n2)
+        self.diameter         = float(diameter)
+
+    def sag(self, r):
+        r   = np.asarray(r, dtype=float)           # works for both NumPy and CuPy r
+        c   = 1.0 / self.radius
         arg = 1.0 - (1.0 + self.conic) * (c**2) * (r**2)
         arg = np.clip(arg, 0.0, None)
 
         base = (c * r**2) / (1.0 + np.sqrt(arg))
-        z = base.copy() if isinstance(base, np.ndarray) else base
+        z    = base.copy()                         # works for both np.ndarray and cupy.ndarray
 
         for i, a in enumerate(self.aspheric_coeffs):
             z = z + a * r**(2 * (i + 2))
 
         return z
-
-    # def intersect(self, ray):
-    #     def f(t):
-    #         p = ray.origin + t * ray.direction
-    #         r = np.sqrt(np.sum((p[:2] - self.vertex[:2])**2))
-    #         return p[2] - self.vertex[2] - self.sag(r)
-
-    #     result = root_scalar(f, bracket=[0, 100], method='brentq')
-    #     if not result.converged:
-    #         return None, None
-
-    #     t = result.root
-    #     intersection = ray.origin + t * ray.direction
-        
-    #     # Check if the intersection is within the lens diameter
-    #     radial_distance = np.linalg.norm(intersection[:2] - self.vertex[:2])
-    #     if radial_distance > self.diameter / 2:
-    #         return None, None
-        
-    #     r = np.sqrt(np.sum((intersection[:2] - self.vertex[:2])**2))
-        
-    #     # Compute normal numerically
-    #     epsilon = 1e-6
-    #     dr = np.array([epsilon, 0, self.sag(r+epsilon) - self.sag(r)])
-    #     dtheta = np.array([0, epsilon, self.sag(r) - self.sag(np.sqrt(r**2 - epsilon**2))])
-    #     normal = np.cross(dr, dtheta)
-    #     normal /= np.linalg.norm(normal)
-
-    #     return intersection, normal

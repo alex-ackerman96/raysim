@@ -1,19 +1,32 @@
+import numpy as _np_cpu  # always the real NumPy, for Ray internals
 # import numpy as np
 from backend import np, BACKEND
 # import cupy as cp
 import warnings
 from typing import Union
 
+def _to_cpu_array(arr):
+    """Convert CuPy array or scalar to a plain Python list/numpy array."""
+    if hasattr(arr, 'get'):          # it's a CuPy ndarray
+        return arr.get()
+    if hasattr(arr, 'item'):         # it's a 0-d CuPy or NumPy scalar
+        return arr.item()
+    return arr                       # already a list, tuple, or numpy array
+
 class Ray:
     def __init__(self, origin, direction=None, point=None, wavelength: float = 550.0):
-        self.origin = np.empty(3, dtype=float)
-        self.direction = np.empty(3, dtype=float)
+
+        # Always convert inputs to CPU immediately — Ray internals are always CPU NumPy
+        origin    = _to_cpu_array(origin)
+        direction = _to_cpu_array(direction)
+        point     = _to_cpu_array(point) if point is not None else None
+
         self.path = []
         self.wavelength = None
 
         # --- origin ---
         try:
-            origin = np.asarray(origin, dtype=float).reshape(-1)
+            origin = _np_cpu.asarray(origin, dtype=float).reshape(-1)
         except Exception:
             raise TypeError("origin value(s) cannot be cast as type float")
 
@@ -26,7 +39,7 @@ class Ray:
         # --- point overrides direction ---
         if point is not None:
             try:
-                point = np.asarray(point, dtype=float).reshape(-1)
+                point = _np_cpu.asarray(point, dtype=float).reshape(-1)
             except Exception:
                 raise TypeError("point value(s) cannot be cast as type float")
 
@@ -38,38 +51,32 @@ class Ray:
 
             direction = point - origin
 
-        # --- direction required if point not used ---
+        # --- direction required ---
         if direction is None:
-            raise TypeError(
-                "direction must be provided unless point is given"
-            )
+            raise TypeError("direction must be provided unless point is given")
 
         try:
-            direction = np.asarray(direction, dtype=float).reshape(-1)
+            direction = _np_cpu.asarray(direction, dtype=float).reshape(-1)
         except Exception:
             raise TypeError("direction value(s) cannot be cast as type float")
 
-        # --- direction from [theta_x, theta_y] in degrees ---
+        # --- [theta_x, theta_y] in degrees ---
         if direction.shape == (2,):
-            theta_x = np.radians(direction[0])
-            theta_y = np.radians(direction[1])
-
-            tx = np.tan(theta_x)
-            ty = np.tan(theta_y)
-
-            vec = np.array([tx, ty, 1.0], dtype=float)
-            mag = np.linalg.norm(vec)
+            theta_x = _np_cpu.radians(direction[0])
+            theta_y = _np_cpu.radians(direction[1])
+            tx = _np_cpu.tan(theta_x)
+            ty = _np_cpu.tan(theta_y)
+            vec = _np_cpu.array([tx, ty, 1.0], dtype=float)
+            mag = _np_cpu.linalg.norm(vec)
             if mag == 0:
                 raise ValueError("invalid angular direction: resulting vector has zero magnitude")
-
             self.direction = vec / mag
 
-        # --- direction from [x, y, z] components ---
+        # --- [x, y, z] unit vector ---
         elif direction.shape == (3,):
-            mag = np.linalg.norm(direction)
+            mag = _np_cpu.linalg.norm(direction)
             if mag == 0:
                 raise ValueError("direction vector cannot be zero")
-
             self.direction = direction / mag
 
         else:
@@ -90,30 +97,147 @@ class Ray:
         self.origin += distance * self.direction
 
     def set_state(self, origin, direction):
-        origin = np.asarray(origin, dtype=float).reshape(3)
-        direction = np.asarray(direction, dtype=float).reshape(3)
-        mag = np.linalg.norm(direction)
+        origin    = _np_cpu.asarray(_to_cpu_array(origin),    dtype=float).reshape(3)
+        direction = _np_cpu.asarray(_to_cpu_array(direction), dtype=float).reshape(3)
+        mag = _np_cpu.linalg.norm(direction)
         if mag == 0:
             raise ValueError("direction vector cannot be zero")
-        self.origin = origin
+        self.origin    = origin
         self.direction = direction / mag
         self.i, self.j, self.k = self.direction
 
     def add_hit(self, hit):
-        hit = np.asarray(hit, dtype=float)
+        hit = _np_cpu.asarray(_to_cpu_array(hit), dtype=float)
         if hit.shape != (3,):
             raise ValueError("hit must be a 3-vector [x, y, z]")
-        print(f"Adding hit at {hit} to ray path")
         self.path.append(hit.copy())
 
-    def get_angles(self, units : str = "deg"):
-        theta_x = np.arctan(self.direction[0]/self.direction[2])
-        theta_y = np.arctan(self.direction[1]/self.direction[2])
+    def get_angles(self, units: str = "deg"):
+        theta_x = _np_cpu.arctan(self.direction[0] / self.direction[2])
+        theta_y = _np_cpu.arctan(self.direction[1] / self.direction[2])
         if units.lower() == "deg":
-            theta_x = np.degrees(theta_x)
-            theta_y = np.degrees(theta_y)
+            theta_x = _np_cpu.degrees(theta_x)
+            theta_y = _np_cpu.degrees(theta_y)
+        return _np_cpu.array([theta_x, theta_y])
+    
+# class Ray:
+#     def __init__(self, origin, direction=None, point=None, wavelength: float = 550.0):
+#         # Accept either numpy or cupy arrays by converting to plain Python floats
+#         # via .item() if scalar, or .get() if cupy ndarray
+#         # self.origin = np.empty(3, dtype=float)
+#         # self.direction = np.empty(3, dtype=float)
+#         direction = _to_cpu_array(direction)
+#         origin    = _to_cpu_array(origin)
+
+#         direction = _np_cpu.asarray(direction, dtype=float).reshape(-1)
+#         origin    = _np_cpu.asarray(origin,    dtype=float).reshape(-1)
+
+#         self.path = []
+#         self.wavelength = None
+
+#         # --- origin ---
+#         try:
+#             origin = np.asarray(origin, dtype=float).reshape(-1)
+#         except Exception:
+#             raise TypeError("origin value(s) cannot be cast as type float")
+
+#         if origin.shape != (3,):
+#             raise TypeError("origin must contain exactly 3 coordinates [x, y, z]")
+
+#         self.origin = origin
+#         self.path.append(origin.copy())
+
+#         # --- point overrides direction ---
+#         if point is not None:
+#             try:
+#                 point = np.asarray(point, dtype=float).reshape(-1)
+#             except Exception:
+#                 raise TypeError("point value(s) cannot be cast as type float")
+
+#             if point.shape != (3,):
+#                 raise TypeError("invalid point provided: point must contain 3 coordinates [x, y, z]")
+
+#             if direction is not None:
+#                 warnings.warn("point coordinates provided, direction will be overridden")
+
+#             direction = point - origin
+
+#         # --- direction required if point not used ---
+#         if direction is None:
+#             raise TypeError(
+#                 "direction must be provided unless point is given"
+#             )
+
+#         try:
+#             direction = np.asarray(direction, dtype=float).reshape(-1)
+#         except Exception:
+#             raise TypeError("direction value(s) cannot be cast as type float")
+
+#         # --- direction from [theta_x, theta_y] in degrees ---
+#         if direction.shape == (2,):
+#             theta_x = np.radians(direction[0])
+#             theta_y = np.radians(direction[1])
+
+#             tx = np.tan(theta_x)
+#             ty = np.tan(theta_y)
+
+#             vec = np.array([tx, ty, 1.0], dtype=float)
+#             mag = np.linalg.norm(vec)
+#             if mag == 0:
+#                 raise ValueError("invalid angular direction: resulting vector has zero magnitude")
+
+#             self.direction = vec / mag
+
+#         # --- direction from [x, y, z] components ---
+#         elif direction.shape == (3,):
+#             mag = np.linalg.norm(direction)
+#             if mag == 0:
+#                 raise ValueError("direction vector cannot be zero")
+
+#             self.direction = direction / mag
+
+#         else:
+#             raise TypeError(
+#                 "direction must have length 2 or 3, representing "
+#                 "[theta_x, theta_y] or [x, y, z] respectively"
+#             )
+
+#         self.i, self.j, self.k = self.direction
+
+#         # --- wavelength ---
+#         try:
+#             self.wavelength = float(wavelength)
+#         except Exception:
+#             raise TypeError("wavelength cannot be cast as type float")
+
+#     def propagate(self, distance):
+#         self.origin += distance * self.direction
+
+#     def set_state(self, origin, direction):
+#         origin = np.asarray(origin, dtype=float).reshape(3)
+#         direction = np.asarray(direction, dtype=float).reshape(3)
+#         mag = np.linalg.norm(direction)
+#         if mag == 0:
+#             raise ValueError("direction vector cannot be zero")
+#         self.origin = origin
+#         self.direction = direction / mag
+#         self.i, self.j, self.k = self.direction
+
+#     def add_hit(self, hit):
+#         hit = np.asarray(hit, dtype=float)
+#         if hit.shape != (3,):
+#             raise ValueError("hit must be a 3-vector [x, y, z]")
+#         print(f"Adding hit at {hit} to ray path")
+#         self.path.append(hit.copy())
+
+#     def get_angles(self, units : str = "deg"):
+#         theta_x = np.arctan(self.direction[0]/self.direction[2])
+#         theta_y = np.arctan(self.direction[1]/self.direction[2])
+#         if units.lower() == "deg":
+#             theta_x = np.degrees(theta_x)
+#             theta_y = np.degrees(theta_y)
             
-        return np.array([theta_x, theta_y])
+#         return np.array([theta_x, theta_y])
 
 class RayGroup:
     def __init__(self, rays: Union[Ray, list[Ray]] = None):
@@ -304,12 +428,14 @@ class AngularSource2D(RayGroup):
             theta = np.linspace(-90.0, 90.0, num_rays)
 
         if plane == 'xz':
-            for theta_x in theta:
+            theta_cpu = theta.get() if hasattr(theta, 'get') else theta  # move to CPU once
+            for theta_x in theta_cpu:
                 ray = Ray(origin=origin, direction=[theta_x, 0.0], wavelength=wavelength)
                 rays.append(ray)
 
         elif plane == 'yz':
-            for theta_y in theta:
+            theta_cpu = theta.get() if hasattr(theta, 'get') else theta  # move to CPU once
+            for theta_y in theta_cpu:
                 ray = Ray(origin=origin, direction=[0.0, theta_y], wavelength=wavelength)
                 rays.append(ray)
 
@@ -349,7 +475,8 @@ class IdealLambertianSource2D(RayGroup):
         theta = np.sort(theta)
 
         if plane == 'xz':
-            for theta_x in theta:
+            theta_cpu = theta.get() if hasattr(theta, 'get') else theta  # move to CPU once
+            for theta_x in theta_cpu:
                 ray = Ray(
                     origin=origin,
                     direction=[theta_x, 0.0],
@@ -358,7 +485,8 @@ class IdealLambertianSource2D(RayGroup):
                 rays.append(ray)
 
         else:  # plane == 'yz'
-            for theta_y in theta:
+            theta_cpu = theta.get() if hasattr(theta, 'get') else theta  # move to CPU once
+            for theta_y in theta_cpu:
                 ray = Ray(
                     origin=origin,
                     direction=[0.0, theta_y],
@@ -402,12 +530,15 @@ class TruncatedLambertianSource2D(RayGroup):
             # Smooth deterministic quantile sampling
             u = (np.arange(num_rays) + 0.5) / num_rays
 
+        
+
         theta = np.degrees(np.arcsin((2.0 * u - 1.0) * sin_theta_max))
 
         theta = np.sort(theta)
 
         if plane == 'xz':
-            for theta_x in theta:
+            theta_cpu = theta.get() if hasattr(theta, 'get') else theta  # move to CPU once
+            for theta_x in theta_cpu:
                 ray = Ray(
                     origin=origin,
                     direction=[theta_x, 0.0],
@@ -416,7 +547,8 @@ class TruncatedLambertianSource2D(RayGroup):
                 rays.append(ray)
 
         else:  # plane == 'yz'
-            for theta_y in theta:
+            theta_cpu = theta.get() if hasattr(theta, 'get') else theta  # move to CPU once
+            for theta_y in theta_cpu:
                 ray = Ray(
                     origin=origin,
                     direction=[0.0, theta_y],

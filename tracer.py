@@ -1,5 +1,6 @@
 # import numpy as np
 # import cupy as cp
+import numpy as _np_cpu
 from backend import np, BACKEND
 import matplotlib.pyplot as plt
 from elements.surfaces import AsphericSurface, PlanarSurface, SphericalSurface
@@ -58,20 +59,44 @@ class Tracer:
 
     # ---------- core implicit surface function ----------
 
-    def F(self, surface, origins, directions, t):
-        """
-        Implicit surface function F(p) = z - z_v - sag(r).
-        origins, directions: (N, 3)
-        t: scalar or array broadcastable to (N,)
-        returns: (N,) values of F at p = origin + t * direction
-        """
-        t = np.asarray(t, dtype=float)
-        p = origins + t[..., None] * directions         # (N, 3)
-        xy = p[..., :2] - surface.vertex[:2]            # (N, 2)
-        r = np.linalg.norm(xy, axis=-1)                 # (N,)
-        return p[..., 2] - surface.vertex[2] - surface.sag(r)
+    # def F(self, surface, origins, directions, t):
+    #     """
+    #     Implicit surface function F(p) = z - z_v - sag(r).
+    #     origins, directions: (N, 3)
+    #     t: scalar or array broadcastable to (N,)
+    #     returns: (N,) values of F at p = origin + t * direction
+    #     """
+    #     t = np.asarray(t, dtype=float)
+    #     p = origins + t[..., None] * directions         # (N, 3)
+    #     xy = p[..., :2] - surface.vertex[:2]            # (N, 2)
+    #     r = np.linalg.norm(xy, axis=-1)                 # (N,)
+    #     return p[..., 2] - surface.vertex[2] - surface.sag(r)
 
-    # ---------- bracketing ----------
+    def F(self, surface, origins, directions, t):
+        t = np.asarray(t, dtype=float)
+        p = origins + t[..., None] * directions              # (N, 3) — GPU
+        vertex = np.asarray(surface.vertex[:2], dtype=float) # lift vertex to same device
+        xy = p[..., :2] - vertex                             # now both on GPU
+        r = np.linalg.norm(xy, axis=-1)
+        return p[..., 2] - float(surface.vertex[2]) - surface.sag(r)
+    
+    def _F_cpu(self, surface, origins_cpu, directions_cpu, t):
+        """
+        CPU-only version of F used inside bracket_roots serial loop.
+        origins_cpu, directions_cpu: plain NumPy (1, 3) arrays
+        t: Python float
+        returns: plain Python float
+        """
+        p   = origins_cpu + float(t) * directions_cpu          # (1, 3)
+        xy  = p[0, :2] - _np_cpu.asarray(surface.vertex[:2])  # (2,)
+        r   = float(_np_cpu.linalg.norm(xy))                   # scalar
+        sag_val = surface.sag(_np_cpu.array([r]))              # pass as 1-element array
+        # sag may return a CuPy array — bring to CPU scalar
+        if hasattr(sag_val, 'get'):
+            sag_val = sag_val.get()
+        sag_val = float(_np_cpu.asarray(sag_val).ravel()[0])
+        return float(p[0, 2]) - float(surface.vertex[2]) - sag_val
+
 
     def bracket_roots(self, surface, origins, directions,
                     base_pad=5.0,
@@ -80,77 +105,88 @@ class Tracer:
                     growth=1.8,
                     near_zero_tol=1e-7,
                     debug=False):
-        N = origins.shape[0]
+        """
+        Bracket root intervals for each ray on CPU (serial loop).
+        Returns CPU NumPy arrays — caller lifts back to GPU.
+        """
+        # Always bring to CPU — this method is a serial Python loop
+        origins_cpu    = origins.get()    if hasattr(origins,    'get') else _np_cpu.asarray(origins)
+        directions_cpu = directions.get() if hasattr(directions, 'get') else _np_cpu.asarray(directions)
+
+        N   = origins_cpu.shape[0]
         z_v = float(surface.vertex[2])
 
-        hit_mask = np.zeros(N, dtype=bool)
-        a = np.full(N, np.nan, dtype=float)
-        b = np.full(N, np.nan, dtype=float)
+        hit_mask = _np_cpu.zeros(N, dtype=bool)
+        a        = _np_cpu.full(N, _np_cpu.nan, dtype=float)
+        b        = _np_cpu.full(N, _np_cpu.nan, dtype=float)
 
-        oz = origins[:, 2]
-        dz = directions[:, 2]
+        oz = origins_cpu[:, 2]
+        dz = directions_cpu[:, 2]
 
-        valid = np.abs(dz) > 1e-12
-        t_plane = np.full(N, np.nan, dtype=float)
+        valid   = _np_cpu.abs(dz) > 1e-12
+        t_plane = _np_cpu.full(N, _np_cpu.nan, dtype=float)
         t_plane[valid] = (z_v - oz[valid]) / dz[valid]
         valid &= (t_plane >= 0.0)
 
-        for i in np.where(valid)[0]:
-            d_i = directions[i]
-            o_i = origins[i:i+1]
-            d_i2 = directions[i:i+1]
+        for i in _np_cpu.where(valid)[0]:
+            o_i  = origins_cpu[i:i+1]      # (1, 3)
+            d_i2 = directions_cpu[i:i+1]   # (1, 3)
 
-            cosz = abs(d_i[2])
-            pad = base_pad / max(cosz, 0.1)
+            cosz = abs(directions_cpu[i, 2])
+            pad  = base_pad / max(cosz, 0.1)
 
-            found = False
-            best_a = np.nan
-            best_b = np.nan
-            best_t = np.nan
-            best_absF = np.inf
+            found     = False
+            best_a    = _np_cpu.nan
+            best_b    = _np_cpu.nan
+            best_t    = _np_cpu.nan
+            best_absF = _np_cpu.inf
 
             for _ in range(max_expansions):
-                left = max(0.0, t_plane[i] - pad)
-                right = t_plane[i] + pad
-                t_grid = np.linspace(left, right, samples_per_pass)
+                left   = max(0.0, float(t_plane[i]) - pad)
+                right  = float(t_plane[i]) + pad
+                t_grid = _np_cpu.linspace(left, right, samples_per_pass)
 
-                F_vals = np.array([self.F(surface, o_i, d_i2, t)[0] for t in t_grid], dtype=float)
+                # Build F_vals as a guaranteed 1D float array
+                F_vals = _np_cpu.array(
+                    [self._F_cpu(surface, o_i, d_i2, float(t)) for t in t_grid],
+                    dtype=float
+                ).ravel()   # ensure 1D regardless of what _F_cpu returns
 
-                finite = np.isfinite(F_vals)
-                if np.count_nonzero(finite) < 2:
+                finite = _np_cpu.isfinite(F_vals)           # 1D bool
+                if _np_cpu.count_nonzero(finite) < 2:
                     pad *= growth
                     continue
 
-                t_valid = t_grid[finite]
-                f_valid = F_vals[finite]
-                absf = np.abs(f_valid)
+                t_valid = t_grid[finite]                    # 1D
+                f_valid = F_vals[finite]                    # 1D
+                absf    = _np_cpu.abs(f_valid)              # 1D
 
-                jmin = np.argmin(absf)
+                jmin = int(_np_cpu.argmin(absf))
                 if absf[jmin] < best_absF:
-                    best_absF = absf[jmin]
-                    best_t = t_valid[jmin]
+                    best_absF = float(absf[jmin])
+                    best_t    = float(t_valid[jmin])
 
-                zero_idx = np.where(absf < near_zero_tol)[0]
+                zero_idx = _np_cpu.where(absf < near_zero_tol)[0]
                 if zero_idx.size > 0:
-                    j = zero_idx[0]
-                    j0 = max(j - 1, 0)
-                    j1 = min(j + 1, len(t_valid) - 1)
-                    best_a = t_valid[j0]
-                    best_b = t_valid[j1]
-                    found = True
+                    j      = int(zero_idx[0])
+                    j0     = max(j - 1, 0)
+                    j1     = min(j + 1, len(t_valid) - 1)
+                    best_a = float(t_valid[j0])
+                    best_b = float(t_valid[j1])
+                    found  = True
                     break
 
-                sign_prod = np.sign(f_valid[:-1]) * np.sign(f_valid[1:])
-                crosses = np.where(sign_prod <= 0)[0]
+                sign_prod = _np_cpu.sign(f_valid[:-1]) * _np_cpu.sign(f_valid[1:])
+                crosses   = _np_cpu.where(sign_prod <= 0)[0]
                 for j in crosses:
-                    t_mid = 0.5 * (t_valid[j] + t_valid[j + 1])
-                    p_mid = o_i[0] + t_mid * d_i2[0]
-                    xy = p_mid[:2] - surface.vertex[:2]
-                    r_mid = np.linalg.norm(xy)
+                    t_mid = 0.5 * (float(t_valid[j]) + float(t_valid[j + 1]))
+                    p_mid = o_i[0] + t_mid * d_i2[0]       # (3,)
+                    xy    = p_mid[:2] - _np_cpu.asarray(surface.vertex[:2])
+                    r_mid = float(_np_cpu.linalg.norm(xy))
                     if r_mid <= surface.diameter / 2.0:
-                        best_a = t_valid[j]
-                        best_b = t_valid[j + 1]
-                        found = True
+                        best_a = float(t_valid[j])
+                        best_b = float(t_valid[j + 1])
+                        found  = True
                         break
 
                 if found:
@@ -158,19 +194,176 @@ class Tracer:
 
                 pad *= growth
 
-            if (not found) and np.isfinite(best_t) and best_absF < near_zero_tol:
+            if (not found) and _np_cpu.isfinite(best_t) and best_absF < near_zero_tol:
                 best_a = max(0.0, best_t - 1e-3)
                 best_b = best_t + 1e-3
-                found = True
+                found  = True
 
             if found:
                 hit_mask[i] = True
                 a[i] = best_a
                 b[i] = best_b
-            # elif debug:
-            #     print(f"[bracket miss] ray={i}, t_plane={t_plane[i]:.6f}, best_absF={best_absF:.3e}")
 
         return hit_mask, a, b
+
+    # ---------- one surface for a group ----------
+
+    def intersect_surface_group(self, surface, origins, directions):
+        """
+        Compute intersections of many rays with one surface.
+        origins, directions: (N,3) — GPU arrays when using CuPy backend
+        returns:
+            hit_mask:   (N,)   bool
+            t_hit:      (N,)   float, NaN where no hit
+            hit_points: (N,3)  float, NaN rows where no hit
+            normals:    (N,3)  float, NaN rows where no hit
+        """
+        N = origins.shape[0]
+
+        # 1. bracket — runs on CPU, returns CPU NumPy arrays
+        root_mask_cpu, a_cpu, b_cpu = self.bracket_roots(surface, origins, directions)
+
+        # 2. lift bracket results back to the active backend device (GPU or CPU)
+        root_mask = np.asarray(root_mask_cpu)
+        a         = np.asarray(a_cpu, dtype=float)
+        b         = np.asarray(b_cpu, dtype=float)
+
+        if not root_mask.any():
+            return (
+                np.zeros(N, dtype=bool),
+                np.full(N, np.nan),
+                np.full((N, 3), np.nan),
+                np.full((N, 3), np.nan),
+            )
+
+        # 3. refine — fully vectorized on GPU
+        t_hit = self.refine_root(surface, origins, directions, a, b, root_mask)  # (N,)
+
+        # 4. hit points
+        hit_points = origins + t_hit[:, None] * directions  # (N,3)
+
+        # 5. aperture check
+        vertex = np.asarray(surface.vertex[:2], dtype=float)
+        xy = hit_points[:, :2] - vertex
+        r  = np.linalg.norm(xy, axis=1)
+        aperture_mask = r <= (surface.diameter / 2.0)
+        hit_mask = root_mask & aperture_mask
+
+        # 6. normals only where hit
+        normals = np.full((N, 3), np.nan, dtype=float)
+        if hit_mask.any():
+            hp = hit_points[hit_mask]
+            n  = self.surface_normal(surface, hp)
+            n  = self.orient_normals(n, directions[hit_mask])
+            normals[hit_mask] = n
+
+        # mask out invalid hits
+        t_hit[~hit_mask]      = np.nan
+        hit_points[~hit_mask] = np.nan
+
+        return hit_mask, t_hit, hit_points, normals
+    # ---------- bracketing ----------
+
+    # def bracket_roots(self, surface, origins, directions,
+    #                 base_pad=5.0,
+    #                 samples_per_pass=128,
+    #                 max_expansions=10,
+    #                 growth=1.8,
+    #                 near_zero_tol=1e-7,
+    #                 debug=False):
+    #     N = origins.shape[0]
+    #     z_v = float(surface.vertex[2])
+
+    #     hit_mask = np.zeros(N, dtype=bool)
+    #     a = np.full(N, np.nan, dtype=float)
+    #     b = np.full(N, np.nan, dtype=float)
+
+    #     oz = origins[:, 2]
+    #     dz = directions[:, 2]
+
+    #     valid = np.abs(dz) > 1e-12
+    #     t_plane = np.full(N, np.nan, dtype=float)
+    #     t_plane[valid] = (z_v - oz[valid]) / dz[valid]
+    #     valid &= (t_plane >= 0.0)
+
+    #     for i in np.where(valid)[0]:
+    #         d_i = directions[i]
+    #         o_i = origins[i:i+1]
+    #         d_i2 = directions[i:i+1]
+
+    #         cosz = abs(d_i[2])
+    #         pad = base_pad / max(cosz, 0.1)
+
+    #         found = False
+    #         best_a = np.nan
+    #         best_b = np.nan
+    #         best_t = np.nan
+    #         best_absF = np.inf
+
+    #         for _ in range(max_expansions):
+    #             left = max(0.0, t_plane[i] - pad)
+    #             right = t_plane[i] + pad
+    #             t_grid = np.linspace(left, right, samples_per_pass)
+
+    #             F_vals = np.array([self.F(surface, o_i, d_i2, t)[0] for t in t_grid], dtype=float)
+
+    #             finite = np.isfinite(F_vals)
+    #             if np.count_nonzero(finite) < 2:
+    #                 pad *= growth
+    #                 continue
+
+    #             t_valid = t_grid[finite]
+    #             f_valid = F_vals[finite]
+    #             absf = np.abs(f_valid)
+
+    #             jmin = np.argmin(absf)
+    #             if absf[jmin] < best_absF:
+    #                 best_absF = absf[jmin]
+    #                 best_t = t_valid[jmin]
+
+    #             zero_idx = np.where(absf < near_zero_tol)[0]
+    #             if zero_idx.size > 0:
+    #                 j = zero_idx[0]
+    #                 j0 = max(j - 1, 0)
+    #                 j1 = min(j + 1, len(t_valid) - 1)
+    #                 best_a = t_valid[j0]
+    #                 best_b = t_valid[j1]
+    #                 found = True
+    #                 break
+
+    #             sign_prod = np.sign(f_valid[:-1]) * np.sign(f_valid[1:])
+    #             crosses = np.where(sign_prod <= 0)[0]
+    #             for j in crosses:
+    #                 t_mid = 0.5 * (t_valid[j] + t_valid[j + 1])
+    #                 p_mid = o_i[0] + t_mid * d_i2[0]
+    #                 xy = p_mid[:2] - surface.vertex[:2]
+    #                 r_mid = np.linalg.norm(xy)
+    #                 if r_mid <= surface.diameter / 2.0:
+    #                     best_a = t_valid[j]
+    #                     best_b = t_valid[j + 1]
+    #                     found = True
+    #                     break
+
+    #             if found:
+    #                 break
+
+    #             pad *= growth
+
+    #         if (not found) and np.isfinite(best_t) and best_absF < near_zero_tol:
+    #             best_a = max(0.0, best_t - 1e-3)
+    #             best_b = best_t + 1e-3
+    #             found = True
+
+    #         if found:
+    #             hit_mask[i] = True
+    #             a[i] = best_a
+    #             b[i] = best_b
+    #         # elif debug:
+    #         #     print(f"[bracket miss] ray={i}, t_plane={t_plane[i]:.6f}, best_absF={best_absF:.3e}")
+
+    #     return hit_mask, a, b
+
+    
 
     # ---------- refinement ----------
 
@@ -268,49 +461,49 @@ class Tracer:
 
     # ---------- one surface for a group ----------
 
-    def intersect_surface_group(self, surface, origins, directions):
-        """
-        Compute intersections of many rays with one surface.
-        origins, directions: (N,3)
-        returns:
-            hit_mask: (N,) bool, True where ray hits within aperture
-            t_hit: (N,) float, NaN where no hit
-            hit_points: (N,3) float, NaN rows where no hit
-            normals: (N,3) float, NaN rows where no hit
-        """
-        N = origins.shape[0]
+    # def intersect_surface_group(self, surface, origins, directions):
+    #     """
+    #     Compute intersections of many rays with one surface.
+    #     origins, directions: (N,3)
+    #     returns:
+    #         hit_mask: (N,) bool, True where ray hits within aperture
+    #         t_hit: (N,) float, NaN where no hit
+    #         hit_points: (N,3) float, NaN rows where no hit
+    #         normals: (N,3) float, NaN rows where no hit
+    #     """
+    #     N = origins.shape[0]
 
-        # 1. bracket
-        root_mask, a, b = self.bracket_roots(surface, origins, directions)
-        if not root_mask.any():
-            # no sign change for any ray
-            return np.zeros(N, dtype=bool), np.full(N, np.nan), np.full((N,3), np.nan), np.full((N,3), np.nan)
+    #     # 1. bracket
+    #     root_mask, a, b = self.bracket_roots(surface, origins, directions)
+    #     if not root_mask.any():
+    #         # no sign change for any ray
+    #         return np.zeros(N, dtype=bool), np.full(N, np.nan), np.full((N,3), np.nan), np.full((N,3), np.nan)
 
-        # 2. refine
-        t_hit = self.refine_root(surface, origins, directions, a, b, root_mask)  # (N,)
+    #     # 2. refine
+    #     t_hit = self.refine_root(surface, origins, directions, a, b, root_mask)  # (N,)
 
-        # 3. hit points
-        hit_points = origins + t_hit[:, None] * directions                      # (N,3)
+    #     # 3. hit points
+    #     hit_points = origins + t_hit[:, None] * directions                      # (N,3)
 
-        # 4. aperture check
-        xy = hit_points[:, :2] - surface.vertex[:2]
-        r = np.linalg.norm(xy, axis=1)
-        aperture_mask = r <= (surface.diameter / 2.0)
-        hit_mask = root_mask & aperture_mask
+    #     # 4. aperture check
+    #     xy = hit_points[:, :2] - surface.vertex[:2]
+    #     r = np.linalg.norm(xy, axis=1)
+    #     aperture_mask = r <= (surface.diameter / 2.0)
+    #     hit_mask = root_mask & aperture_mask
 
-        # 5. normals only where hit
-        normals = np.full((N, 3), np.nan, dtype=float)
-        if hit_mask.any():
-            hp = hit_points[hit_mask]
-            n = self.surface_normal(surface, hp)
-            n = self.orient_normals(n, directions[hit_mask])
-            normals[hit_mask] = n
+    #     # 5. normals only where hit
+    #     normals = np.full((N, 3), np.nan, dtype=float)
+    #     if hit_mask.any():
+    #         hp = hit_points[hit_mask]
+    #         n = self.surface_normal(surface, hp)
+    #         n = self.orient_normals(n, directions[hit_mask])
+    #         normals[hit_mask] = n
 
-        # set invalid hits to NaN
-        t_hit[~hit_mask] = np.nan
-        hit_points[~hit_mask] = np.nan
+    #     # set invalid hits to NaN
+    #     t_hit[~hit_mask] = np.nan
+    #     hit_points[~hit_mask] = np.nan
 
-        return hit_mask, t_hit, hit_points, normals
+    #     return hit_mask, t_hit, hit_points, normals
 
     # ---------- high-level trace ----------
 
