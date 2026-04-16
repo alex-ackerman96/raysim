@@ -1,9 +1,16 @@
 import numpy as _np_cpu  # always the real NumPy, for Ray internals
 # import numpy as np
-from backend import np, BACKEND
+from backend import np, BACKEND, to_cpu
 # import cupy as cp
 import warnings
 from typing import Union
+import math as _math
+
+# ─────────────────────────────────────────────
+#  Helper: pull GPU array to CPU in one call
+# ─────────────────────────────────────────────
+def _to_cpu(arr):
+    return arr.get() if hasattr(arr, 'get') else arr
 
 def _to_cpu_array(arr):
     """Convert CuPy array or scalar to a plain Python list/numpy array."""
@@ -287,276 +294,488 @@ class RayGroup:
         self.i = self.ray_directions[:, 0]
         self.j = self.ray_directions[:, 1]
         self.k = self.ray_directions[:, 2]
-
 class IdealAngularSource3D(RayGroup):
-    def __init__( self, origin, num_rays=1000, wavelength=550.0, angle = 30):
+    """Uniform random rays within a square angular cone [±angle/2] in both axes."""
+    def __init__(self, origin, num_rays=1000, wavelength=550.0, angle=30):
+        theta_x = np.random.uniform(-angle / 2, angle / 2, size=num_rays)
+        theta_y = np.random.uniform(-angle / 2, angle / 2, size=num_rays)
+
+        theta_x_cpu = _to_cpu(theta_x)
+        theta_y_cpu = _to_cpu(theta_y)
+
         rays = []
-        for _ in range(num_rays):
-            theta_x = np.random.uniform(-angle/2, angle/2)
-            theta_y = np.random.uniform(-angle/2, angle/2)
-            ray = Ray(origin=origin, direction=[theta_x, theta_y], wavelength=wavelength)
-            rays.append(ray)
+        for tx, ty in zip(theta_x_cpu, theta_y_cpu):
+            rays.append(Ray(origin=origin, direction=[float(tx), float(ty)], wavelength=wavelength))
         super().__init__(rays)
 
-class IdealLambertianSource3D(RayGroup):
-    def __init__(self, origin, num_rays=1000, wavelength=550.0,
-                 distribution='random'):
 
+# ─────────────────────────────────────────────────────────────────
+class IdealLambertianSource3D(RayGroup):
+    """
+    3D Lambertian / cosine-weighted hemisphere.
+
+    PDF over solid angle:  p(omega) = cos(theta) / pi
+    Sampling:
+      phi   = 2*pi*v
+      theta = arcsin(sqrt(u))
+    where u, v ~ Uniform[0,1].
+    """
+    def __init__(self, origin, num_rays=1000, wavelength=550.0, distribution='random'):
         if distribution not in ['random', 'deterministic']:
             raise ValueError("distribution must be 'random' or 'deterministic'")
-
-        rays = []
-
-        # 3D Lambertian / cosine-weighted hemisphere sampling
-        #
-        # PDF over solid angle:
-        # p(omega) = cos(theta) / pi
-        #
-        # In spherical coordinates:
-        # phi   = 2*pi*v
-        # theta = arcsin(sqrt(u))
-        #
-        # where u,v are uniform on [0,1].
 
         if distribution == 'random':
             u = np.random.uniform(0.0, 1.0, size=num_rays)
             v = np.random.uniform(0.0, 1.0, size=num_rays)
         else:
-            # Deterministic smooth sampling:
-            # evenly spaced quantiles in theta-distribution,
-            # evenly spaced azimuth samples
             u = (np.arange(num_rays) + 0.5) / num_rays
-            golden_ratio_conjugate = (np.sqrt(5.0) - 1.0) / 2.0
+            golden_ratio_conjugate = (_math.sqrt(5.0) - 1.0) / 2.0
             v = (np.arange(num_rays) * golden_ratio_conjugate) % 1.0
 
-        theta = np.arcsin(np.sqrt(u))      # polar angle from +z normal
-        phi = 2.0 * np.pi * v              # azimuth angle
+        theta = np.arcsin(np.sqrt(u))
+        phi   = 2.0 * _math.pi * v
 
-        # Convert to Cartesian direction cosines
         dx = np.sin(theta) * np.cos(phi)
         dy = np.sin(theta) * np.sin(phi)
         dz = np.cos(theta)
 
-        # Convert to projected angular representation relative to +z
         theta_x = np.degrees(np.arctan2(dx, dz))
         theta_y = np.degrees(np.arctan2(dy, dz))
 
-        for tx, ty in zip(theta_x, theta_y):
-            ray = Ray(
-                origin=origin,
-                direction=[tx, ty],
-                wavelength=wavelength
-            )
-            rays.append(ray)
+        theta_x_cpu = _to_cpu(theta_x)
+        theta_y_cpu = _to_cpu(theta_y)
 
+        rays = []
+        for tx, ty in zip(theta_x_cpu, theta_y_cpu):
+            rays.append(Ray(origin=origin, direction=[float(tx), float(ty)], wavelength=wavelength))
         super().__init__(rays)
 
-class TruncatedLambertianSource3D(RayGroup):
-    def __init__(self, origin, num_rays=1000, wavelength=550.0, distribution='random', half_angle_deg=30.0):
 
+# ─────────────────────────────────────────────────────────────────
+class TruncatedLambertianSource3D(RayGroup):
+    """
+    3D Lambertian / cosine-weighted cone truncated to half_angle_deg.
+
+    PDF over solid angle (restricted to cone):
+      p(theta, phi) ∝ cos(theta) sin(theta)
+
+    CDF in theta:
+      F(theta) = sin^2(theta) / sin^2(theta_max)
+
+    Inverse CDF:
+      theta = arcsin( sin(theta_max) * sqrt(u) )
+
+    phi remains uniform on [0, 2*pi).
+    """
+    def __init__(self, origin, num_rays=1000, wavelength=550.0,
+                 distribution='random', half_angle_deg=30.0):
         if distribution not in ['random', 'deterministic']:
             raise ValueError("distribution must be 'random' or 'deterministic'")
-
         if not (0.0 < half_angle_deg <= 90.0):
             raise ValueError("half_angle_deg must be in the range (0, 90]")
 
-        rays = []
-
-        theta_max = np.radians(half_angle_deg)
-        sin_theta_max = np.sin(theta_max)
-
-        # Truncated 3D Lambertian / cosine-weighted cone sampling
-        #
-        # Full hemisphere PDF over solid angle:
-        #   p(omega) = cos(theta) / pi
-        #
-        # Restricted to cone 0 <= theta <= theta_max:
-        #   p(theta, phi) ∝ cos(theta) sin(theta)
-        #
-        # CDF in theta:
-        #   F(theta) = sin^2(theta) / sin^2(theta_max)
-        #
-        # Inverse CDF:
-        #   theta = arcsin( sin(theta_max) * sqrt(u) )
-        #
-        # phi remains uniform on [0, 2*pi)
+        # Scalar trig with math — avoids CuPy 0-d arrays
+        theta_max     = _math.radians(half_angle_deg)
+        sin_theta_max = _math.sin(theta_max)
 
         if distribution == 'random':
             u = np.random.uniform(0.0, 1.0, size=num_rays)
             v = np.random.uniform(0.0, 1.0, size=num_rays)
         else:
             u = (np.arange(num_rays) + 0.5) / num_rays
-            golden_ratio_conjugate = (np.sqrt(5.0) - 1.0) / 2.0
+            golden_ratio_conjugate = (_math.sqrt(5.0) - 1.0) / 2.0
             v = (np.arange(num_rays) * golden_ratio_conjugate) % 1.0
 
         theta = np.arcsin(sin_theta_max * np.sqrt(u))
-        phi = 2.0 * np.pi * v
+        phi   = 2.0 * _math.pi * v
 
-        # Cartesian direction cosines, cone centered on +z
         dx = np.sin(theta) * np.cos(phi)
         dy = np.sin(theta) * np.sin(phi)
         dz = np.cos(theta)
 
-        # Convert to your projected angular representation
         theta_x = np.degrees(np.arctan2(dx, dz))
         theta_y = np.degrees(np.arctan2(dy, dz))
 
-        for tx, ty in zip(theta_x, theta_y):
-            ray = Ray(
-                origin=origin,
-                direction=[tx, ty],
-                wavelength=wavelength
-            )
-            rays.append(ray)
+        theta_x_cpu = _to_cpu(theta_x)
+        theta_y_cpu = _to_cpu(theta_y)
 
+        rays = []
+        for tx, ty in zip(theta_x_cpu, theta_y_cpu):
+            rays.append(Ray(origin=origin, direction=[float(tx), float(ty)], wavelength=wavelength))
         super().__init__(rays)
 
-class AngularSource2D(RayGroup):
-    def __init__(self, origin, num_rays=1000, wavelength=550.0, distribution='random', plane='xz'):
 
+# ─────────────────────────────────────────────────────────────────
+class AngularSource2D(RayGroup):
+    """Uniform rays over full ±90° or random in a plane."""
+    def __init__(self, origin, num_rays=1000, wavelength=550.0,
+                 distribution='random', plane='xz'):
         if plane not in ['xz', 'yz']:
             raise ValueError("plane must be 'xz' or 'yz'")
-
         if distribution not in ['random', 'uniform']:
             raise ValueError("distribution must be 'random' or 'uniform'")
 
-        rays = []
-
         if distribution == 'random':
-            theta = np.random.uniform(0, 1, num_rays)
-        elif distribution == 'uniform':
+            theta = np.random.uniform(-90.0, 90.0, num_rays)
+        else:
             theta = np.linspace(-90.0, 90.0, num_rays)
 
-        if plane == 'xz':
-            theta_cpu = theta.get() if hasattr(theta, 'get') else theta  # move to CPU once
-            for theta_x in theta_cpu:
-                ray = Ray(origin=origin, direction=[theta_x, 0.0], wavelength=wavelength)
-                rays.append(ray)
-
-        elif plane == 'yz':
-            theta_cpu = theta.get() if hasattr(theta, 'get') else theta  # move to CPU once
-            for theta_y in theta_cpu:
-                ray = Ray(origin=origin, direction=[0.0, theta_y], wavelength=wavelength)
-                rays.append(ray)
-
-        super().__init__(rays)
-
-class IdealLambertianSource2D(RayGroup):
-    def __init__(self, origin, num_rays=1000, wavelength=550.0, distribution='random', plane='xz'):
-
-        if plane not in ['xz', 'yz']:
-            raise ValueError("plane must be 'xz' or 'yz'")
-
-        if distribution not in ['random', 'deterministic']:
-            raise ValueError("distribution must be 'random' or 'deterministic'")
+        theta_cpu = _to_cpu(theta)
 
         rays = []
-
-        # 2D Lambertian angular PDF:
-        # p(theta) = cos(theta) / 2,  theta in [-pi/2, pi/2]
-        #
-        # CDF:
-        # F(theta) = (sin(theta) + 1) / 2
-        #
-        # Inverse CDF:
-        # theta = arcsin(2u - 1)
-
-        if distribution == 'random':
-            # Monte Carlo Lambertian sampling
-            u = np.random.uniform(0.0, 1.0, size=num_rays)
-        else:
-            # Smooth deterministic Lambertian sampling:
-            # evenly spaced quantiles in cumulative probability
-            u = (np.arange(num_rays) + 0.5) / num_rays
-
-        theta = np.degrees(np.arcsin(2.0 * u - 1.0))
-
-        # Optional: sort for cleaner fan plotting
-        theta = np.sort(theta)
-
         if plane == 'xz':
-            theta_cpu = theta.get() if hasattr(theta, 'get') else theta  # move to CPU once
-            for theta_x in theta_cpu:
-                ray = Ray(
-                    origin=origin,
-                    direction=[theta_x, 0.0],
-                    wavelength=wavelength
-                )
-                rays.append(ray)
-
-        else:  # plane == 'yz'
-            theta_cpu = theta.get() if hasattr(theta, 'get') else theta  # move to CPU once
-            for theta_y in theta_cpu:
-                ray = Ray(
-                    origin=origin,
-                    direction=[0.0, theta_y],
-                    wavelength=wavelength
-                )
-                rays.append(ray)
-
+            for t in theta_cpu:
+                rays.append(Ray(origin=origin, direction=[float(t), 0.0], wavelength=wavelength))
+        else:
+            for t in theta_cpu:
+                rays.append(Ray(origin=origin, direction=[0.0, float(t)], wavelength=wavelength))
         super().__init__(rays)
 
-class TruncatedLambertianSource2D(RayGroup):
-    def __init__(self, origin, num_rays=1000, wavelength=550.0,
-                 distribution='random', plane='xz', half_angle_deg=30.0):
 
+# ─────────────────────────────────────────────────────────────────
+class IdealLambertianSource2D(RayGroup):
+    """
+    2D Lambertian angular PDF:
+      p(theta) = cos(theta) / 2,  theta in [-pi/2, pi/2]
+
+    CDF:       F(theta) = (sin(theta) + 1) / 2
+    Inverse:   theta = arcsin(2u - 1)
+    """
+    def __init__(self, origin, num_rays=1000, wavelength=550.0,
+                 distribution='random', plane='xz'):
         if plane not in ['xz', 'yz']:
             raise ValueError("plane must be 'xz' or 'yz'")
-
         if distribution not in ['random', 'deterministic']:
             raise ValueError("distribution must be 'random' or 'deterministic'")
 
+        if distribution == 'random':
+            u = np.random.uniform(0.0, 1.0, size=num_rays)
+        else:
+            u = (np.arange(num_rays) + 0.5) / num_rays
+
+        theta     = np.degrees(np.arcsin(2.0 * u - 1.0))
+        theta     = np.sort(theta)
+        theta_cpu = _to_cpu(theta)
+
+        rays = []
+        if plane == 'xz':
+            for t in theta_cpu:
+                rays.append(Ray(origin=origin, direction=[float(t), 0.0], wavelength=wavelength))
+        else:
+            for t in theta_cpu:
+                rays.append(Ray(origin=origin, direction=[0.0, float(t)], wavelength=wavelength))
+        super().__init__(rays)
+
+
+# ─────────────────────────────────────────────────────────────────
+class TruncatedLambertianSource2D(RayGroup):
+    """
+    2D truncated Lambertian angular PDF:
+      p(theta) = cos(theta) / (2 sin(theta_max)),
+      theta in [-theta_max, +theta_max]
+
+    CDF:     F(theta) = (sin(theta) + sin(theta_max)) / (2 sin(theta_max))
+    Inverse: theta = arcsin((2u - 1) * sin(theta_max))
+    """
+    def __init__(self, origin, num_rays=1000, wavelength=550.0,
+                 distribution='random', plane='xz', half_angle_deg=30.0):
+        if plane not in ['xz', 'yz']:
+            raise ValueError("plane must be 'xz' or 'yz'")
+        if distribution not in ['random', 'deterministic']:
+            raise ValueError("distribution must be 'random' or 'deterministic'")
         if not (0.0 < half_angle_deg <= 90.0):
             raise ValueError("half_angle_deg must be in the range (0, 90]")
 
-        theta_max = np.radians(half_angle_deg)
-        sin_theta_max = np.sin(theta_max)
-
-        rays = []
-
-        # 2D truncated Lambertian angular PDF:
-        # p(theta) = cos(theta) / (2 sin(theta_max)),
-        # theta in [-theta_max, +theta_max]
-        #
-        # CDF:
-        # F(theta) = (sin(theta) + sin(theta_max)) / (2 sin(theta_max))
-        #
-        # Inverse CDF:
-        # theta = arcsin((2u - 1) * sin(theta_max))
+        # Scalar trig with math — avoids CuPy 0-d arrays
+        theta_max     = _math.radians(half_angle_deg)
+        sin_theta_max = _math.sin(theta_max)
 
         if distribution == 'random':
             u = np.random.uniform(0.0, 1.0, size=num_rays)
         else:
-            # Smooth deterministic quantile sampling
             u = (np.arange(num_rays) + 0.5) / num_rays
+
+        theta     = np.degrees(np.arcsin((2.0 * u - 1.0) * sin_theta_max))
+        theta     = np.sort(theta)
+        theta_cpu = _to_cpu(theta)
+
+        rays = []
+        if plane == 'xz':
+            for t in theta_cpu:
+                rays.append(Ray(origin=origin, direction=[float(t), 0.0], wavelength=wavelength))
+        else:
+            for t in theta_cpu:
+                rays.append(Ray(origin=origin, direction=[0.0, float(t)], wavelength=wavelength))
+        super().__init__(rays)
+# class IdealAngularSource3D(RayGroup):
+#     def __init__( self, origin, num_rays=1000, wavelength=550.0, angle = 30):
+#         rays = []
+#         for _ in range(num_rays):
+#             theta_x = np.random.uniform(-angle/2, angle/2)
+#             theta_y = np.random.uniform(-angle/2, angle/2)
+#             ray = Ray(origin=origin, direction=[theta_x, theta_y], wavelength=wavelength)
+#             rays.append(ray)
+#         super().__init__(rays)
+
+# class IdealLambertianSource3D(RayGroup):
+#     def __init__(self, origin, num_rays=1000, wavelength=550.0,
+#                  distribution='random'):
+
+#         if distribution not in ['random', 'deterministic']:
+#             raise ValueError("distribution must be 'random' or 'deterministic'")
+
+#         rays = []
+
+#         # 3D Lambertian / cosine-weighted hemisphere sampling
+#         #
+#         # PDF over solid angle:
+#         # p(omega) = cos(theta) / pi
+#         #
+#         # In spherical coordinates:
+#         # phi   = 2*pi*v
+#         # theta = arcsin(sqrt(u))
+#         #
+#         # where u,v are uniform on [0,1].
+
+#         if distribution == 'random':
+#             u = np.random.uniform(0.0, 1.0, size=num_rays)
+#             v = np.random.uniform(0.0, 1.0, size=num_rays)
+#         else:
+#             # Deterministic smooth sampling:
+#             # evenly spaced quantiles in theta-distribution,
+#             # evenly spaced azimuth samples
+#             u = (np.arange(num_rays) + 0.5) / num_rays
+#             golden_ratio_conjugate = (np.sqrt(5.0) - 1.0) / 2.0
+#             v = (np.arange(num_rays) * golden_ratio_conjugate) % 1.0
+
+#         theta = np.arcsin(np.sqrt(u))      # polar angle from +z normal
+#         phi = 2.0 * np.pi * v              # azimuth angle
+
+#         # Convert to Cartesian direction cosines
+#         dx = np.sin(theta) * np.cos(phi)
+#         dy = np.sin(theta) * np.sin(phi)
+#         dz = np.cos(theta)
+
+#         # Convert to projected angular representation relative to +z
+#         theta_x = np.degrees(np.arctan2(dx, dz))
+#         theta_y = np.degrees(np.arctan2(dy, dz))
+
+#         for tx, ty in zip(theta_x, theta_y):
+#             ray = Ray(
+#                 origin=origin,
+#                 direction=[tx, ty],
+#                 wavelength=wavelength
+#             )
+#             rays.append(ray)
+
+#         super().__init__(rays)
+
+# class TruncatedLambertianSource3D(RayGroup):
+#     def __init__(self, origin, num_rays=1000, wavelength=550.0, distribution='random', half_angle_deg=30.0):
+
+#         if distribution not in ['random', 'deterministic']:
+#             raise ValueError("distribution must be 'random' or 'deterministic'")
+
+#         if not (0.0 < half_angle_deg <= 90.0):
+#             raise ValueError("half_angle_deg must be in the range (0, 90]")
+
+#         rays = []
+
+#         theta_max = np.radians(half_angle_deg)
+#         sin_theta_max = np.sin(theta_max)
+
+#         # Truncated 3D Lambertian / cosine-weighted cone sampling
+#         #
+#         # Full hemisphere PDF over solid angle:
+#         #   p(omega) = cos(theta) / pi
+#         #
+#         # Restricted to cone 0 <= theta <= theta_max:
+#         #   p(theta, phi) ∝ cos(theta) sin(theta)
+#         #
+#         # CDF in theta:
+#         #   F(theta) = sin^2(theta) / sin^2(theta_max)
+#         #
+#         # Inverse CDF:
+#         #   theta = arcsin( sin(theta_max) * sqrt(u) )
+#         #
+#         # phi remains uniform on [0, 2*pi)
+
+#         if distribution == 'random':
+#             u = np.random.uniform(0.0, 1.0, size=num_rays)
+#             v = np.random.uniform(0.0, 1.0, size=num_rays)
+#         else:
+#             u = (np.arange(num_rays) + 0.5) / num_rays
+#             golden_ratio_conjugate = (np.sqrt(5.0) - 1.0) / 2.0
+#             v = (np.arange(num_rays) * golden_ratio_conjugate) % 1.0
+
+#         theta = np.arcsin(sin_theta_max * np.sqrt(u))
+#         phi = 2.0 * np.pi * v
+
+#         # Cartesian direction cosines, cone centered on +z
+#         dx = np.sin(theta) * np.cos(phi)
+#         dy = np.sin(theta) * np.sin(phi)
+#         dz = np.cos(theta)
+
+#         # Convert to your projected angular representation
+#         theta_x = np.degrees(np.arctan2(dx, dz))
+#         theta_y = np.degrees(np.arctan2(dy, dz))
+
+#         for tx, ty in zip(theta_x, theta_y):
+#             ray = Ray(
+#                 origin=origin,
+#                 direction=[tx, ty],
+#                 wavelength=wavelength
+#             )
+#             rays.append(ray)
+
+#         super().__init__(rays)
+
+# class AngularSource2D(RayGroup):
+#     def __init__(self, origin, num_rays=1000, wavelength=550.0, distribution='random', plane='xz'):
+
+#         if plane not in ['xz', 'yz']:
+#             raise ValueError("plane must be 'xz' or 'yz'")
+
+#         if distribution not in ['random', 'uniform']:
+#             raise ValueError("distribution must be 'random' or 'uniform'")
+
+#         rays = []
+
+#         if distribution == 'random':
+#             theta = np.random.uniform(0, 1, num_rays)
+#         elif distribution == 'uniform':
+#             theta = np.linspace(-90.0, 90.0, num_rays)
+
+#         if plane == 'xz':
+#             theta_cpu = theta.get() if hasattr(theta, 'get') else theta  # move to CPU once
+#             for theta_x in theta_cpu:
+#                 ray = Ray(origin=origin, direction=[theta_x, 0.0], wavelength=wavelength)
+#                 rays.append(ray)
+
+#         elif plane == 'yz':
+#             theta_cpu = theta.get() if hasattr(theta, 'get') else theta  # move to CPU once
+#             for theta_y in theta_cpu:
+#                 ray = Ray(origin=origin, direction=[0.0, theta_y], wavelength=wavelength)
+#                 rays.append(ray)
+
+#         super().__init__(rays)
+
+# class IdealLambertianSource2D(RayGroup):
+#     def __init__(self, origin, num_rays=1000, wavelength=550.0, distribution='random', plane='xz'):
+
+#         if plane not in ['xz', 'yz']:
+#             raise ValueError("plane must be 'xz' or 'yz'")
+
+#         if distribution not in ['random', 'deterministic']:
+#             raise ValueError("distribution must be 'random' or 'deterministic'")
+
+#         rays = []
+
+#         # 2D Lambertian angular PDF:
+#         # p(theta) = cos(theta) / 2,  theta in [-pi/2, pi/2]
+#         #
+#         # CDF:
+#         # F(theta) = (sin(theta) + 1) / 2
+#         #
+#         # Inverse CDF:
+#         # theta = arcsin(2u - 1)
+
+#         if distribution == 'random':
+#             # Monte Carlo Lambertian sampling
+#             u = np.random.uniform(0.0, 1.0, size=num_rays)
+#         else:
+#             # Smooth deterministic Lambertian sampling:
+#             # evenly spaced quantiles in cumulative probability
+#             u = (np.arange(num_rays) + 0.5) / num_rays
+
+#         theta = np.degrees(np.arcsin(2.0 * u - 1.0))
+
+#         # Optional: sort for cleaner fan plotting
+#         theta = np.sort(theta)
+
+#         if plane == 'xz':
+#             theta_cpu = theta.get() if hasattr(theta, 'get') else theta  # move to CPU once
+#             for theta_x in theta_cpu:
+#                 ray = Ray(
+#                     origin=origin,
+#                     direction=[theta_x, 0.0],
+#                     wavelength=wavelength
+#                 )
+#                 rays.append(ray)
+
+#         else:  # plane == 'yz'
+#             theta_cpu = theta.get() if hasattr(theta, 'get') else theta  # move to CPU once
+#             for theta_y in theta_cpu:
+#                 ray = Ray(
+#                     origin=origin,
+#                     direction=[0.0, theta_y],
+#                     wavelength=wavelength
+#                 )
+#                 rays.append(ray)
+
+#         super().__init__(rays)
+
+# class TruncatedLambertianSource2D(RayGroup):
+#     def __init__(self, origin, num_rays=1000, wavelength=550.0,
+#                  distribution='random', plane='xz', half_angle_deg=30.0):
+
+#         if plane not in ['xz', 'yz']:
+#             raise ValueError("plane must be 'xz' or 'yz'")
+
+#         if distribution not in ['random', 'deterministic']:
+#             raise ValueError("distribution must be 'random' or 'deterministic'")
+
+#         if not (0.0 < half_angle_deg <= 90.0):
+#             raise ValueError("half_angle_deg must be in the range (0, 90]")
+
+#         theta_max = np.radians(half_angle_deg)
+#         sin_theta_max = np.sin(theta_max)
+
+#         rays = []
+
+#         # 2D truncated Lambertian angular PDF:
+#         # p(theta) = cos(theta) / (2 sin(theta_max)),
+#         # theta in [-theta_max, +theta_max]
+#         #
+#         # CDF:
+#         # F(theta) = (sin(theta) + sin(theta_max)) / (2 sin(theta_max))
+#         #
+#         # Inverse CDF:
+#         # theta = arcsin((2u - 1) * sin(theta_max))
+
+#         if distribution == 'random':
+#             u = np.random.uniform(0.0, 1.0, size=num_rays)
+#         else:
+#             # Smooth deterministic quantile sampling
+#             u = (np.arange(num_rays) + 0.5) / num_rays
 
         
 
-        theta = np.degrees(np.arcsin((2.0 * u - 1.0) * sin_theta_max))
+#         theta = np.degrees(np.arcsin((2.0 * u - 1.0) * sin_theta_max))
 
-        theta = np.sort(theta)
+#         theta = np.sort(theta)
 
-        if plane == 'xz':
-            theta_cpu = theta.get() if hasattr(theta, 'get') else theta  # move to CPU once
-            for theta_x in theta_cpu:
-                ray = Ray(
-                    origin=origin,
-                    direction=[theta_x, 0.0],
-                    wavelength=wavelength
-                )
-                rays.append(ray)
+#         if plane == 'xz':
+#             theta_cpu = theta.get() if hasattr(theta, 'get') else theta  # move to CPU once
+#             for theta_x in theta_cpu:
+#                 ray = Ray(
+#                     origin=origin,
+#                     direction=[theta_x, 0.0],
+#                     wavelength=wavelength
+#                 )
+#                 rays.append(ray)
 
-        else:  # plane == 'yz'
-            theta_cpu = theta.get() if hasattr(theta, 'get') else theta  # move to CPU once
-            for theta_y in theta_cpu:
-                ray = Ray(
-                    origin=origin,
-                    direction=[0.0, theta_y],
-                    wavelength=wavelength
-                )
-                rays.append(ray)
+#         else:  # plane == 'yz'
+#             theta_cpu = theta.get() if hasattr(theta, 'get') else theta  # move to CPU once
+#             for theta_y in theta_cpu:
+#                 ray = Ray(
+#                     origin=origin,
+#                     direction=[0.0, theta_y],
+#                     wavelength=wavelength
+#                 )
+#                 rays.append(ray)
 
-        super().__init__(rays)
+#         super().__init__(rays)
 
 class ExtendedLambertianSource(RayGroup):
     pass

@@ -1,15 +1,15 @@
 from matplotlib import pyplot as plt
-# import numpy as np
-from backend import np, BACKEND
+import numpy as _np_cpu
+from backend import np, BACKEND, to_cpu
 from typing import Union, List
 from dataclasses import dataclass
 from elements.surfaces import Surface
-# from elements.lenses import Lens
 from rays.ray import Ray, RayGroup
+
 
 def wavelength_nm_to_rgb(wl):
     """
-    Approximate sRGB triple (0–1) for wavelength l in nm, valid ~400–700 nm.
+    Approximate sRGB triple (0-1) for wavelength l in nm, valid ~380-780 nm.
     Outside this range returns (0,0,0).
     """
     wl = float(wl)
@@ -36,12 +36,11 @@ def wavelength_nm_to_rgb(wl):
         r = 1.0
         g = -(wl - 645.0) / (645.0 - 580.0)
         b = 0.0
-    else:  # 645–1000 nm
+    else:  # 645-780 nm
         r = 1.0 - (wl - 645.0) / (1000.0 - 645.0)
         g = 0.0
         b = 0.0
 
-    # Intensity factor near vision limits
     if 380 <= wl < 420:
         factor = 0.3 + 0.7 * (wl - 380.0) / (420.0 - 380.0)
     elif 420 <= wl <= 700:
@@ -60,47 +59,44 @@ def wavelength_nm_to_rgb(wl):
 
     return (correct(r), correct(g), correct(b))
 
+
 @dataclass
 class Lens:
     surfaces: List  # ordered list of surfaces, front to back
 
+
 class Plotter:
     """
-    Class for visualizing ray paths and lens surfaces in a 2D cross-sectional plot, or ray distributions in a plane normal to the optical axis.
+    Visualize ray paths and lens surfaces in a 2D cross-sectional plot.
     """
     def __init__(self, rays: Union[Ray, RayGroup], elements: Union[Lens, list], *args, **kwargs):
-        self.rays = rays
-        self.paths = rays.ray_paths
+        self.rays     = rays
+        # Convert paths to CPU once at construction — matplotlib always needs CPU arrays
+        self.paths    = to_cpu(rays.ray_paths)
         self.elements = elements
-        self.lenses = self.elements # if elements is a list of lenses, otherwise wrap in a list
-        self.max_r = None
-        self.colors = "wavelength" 
+        self.lenses   = self.elements
+        self.max_r    = None
+        self.colors   = "wavelength"
 
     def set_focalpoint_visible(self, visible=True):
-        # Placeholder for toggling focal point visibility in the plot
         pass
 
     def set_principal_planes_visible(self, visible=True):
-        # Placeholder for toggling principal plane visibility in the plot
         pass
 
     def set_ray_paths_visible(self, visible=True):
-        # Placeholder for toggling ray path visibility in the plot
         pass
 
     def set_ray_colors(self, color_map='wavelength'):
-        # Placeholder for setting ray colors based on a color map (e.g., wavelength)
         pass
 
     def plot_cross_section(self):
         """
-        lenses: list[Lens]
-        paths: (S, N, 3) array from Tracer.trace_group
+        Plot 2D cross-section of ray paths through lens system.
+        paths shape: (S, N, 3)
         """
         fig, ax = plt.subplots(figsize=(10, 7))
 
-        # background / grid styling (similar to your existing code)
-        DARK_BG = '#0a0b0c'
         LIGHT_BG = '#ffffff'
         AXIS_COL = '#000000'
         GRID_COL = "#cccccc"
@@ -114,23 +110,24 @@ class Plotter:
         ax.tick_params(axis='y', colors=GRID_COL)
         ax.axhline(0, color=AXIS_COL, lw=0.5, alpha=0.35, zorder=1)
 
-        # ---- draw rays using paths ----
+        # paths is already CPU NumPy (converted in __init__)
         S, N, _ = self.paths.shape
-        colors = ['#4dbf6b']
+        fallback_colors = ['#4dbf6b']
+
+        wavelengths_cpu = to_cpu(self.rays.wavelengths) if self.rays.wavelengths is not None else None
 
         for i in range(N):
-            p = self.paths[:, i, :]  # (S, 3) – sequence of points for ray i
-            # you may have NaNs for rays that stopped early; mask them
-            mask = ~np.isnan(p[:, 0])
-            if not np.any(mask):
+            p    = self.paths[:, i, :]              # (S, 3) CPU
+            mask = ~_np_cpu.isnan(p[:, 0])
+            if not mask.any():
                 continue
             z = p[mask, 2]
             y = p[mask, 1]
-            if self.colors == 'wavelength' and self.rays.wavelengths is not None:
-                wl = self.rays.wavelengths[i]
+            if self.colors == 'wavelength' and wavelengths_cpu is not None:
+                wl    = float(wavelengths_cpu[i])
                 color = wavelength_nm_to_rgb(wl)
             else:
-                color = colors[i % len(colors)]
+                color = fallback_colors[i % len(fallback_colors)]
             ax.plot(z, y, color=color, lw=0.8, alpha=0.5)
 
         # ---- draw surfaces ----
@@ -138,199 +135,187 @@ class Plotter:
         if self.max_r is None:
             self.max_r = max(s.diameter for s in all_surfaces) / 2.0
 
-        n = 4000
+        n_pts = 4000
 
-        # Draw surfaces
         for lens in self.lenses:
             surf_zprofiles = []
-            r_max_prev = None # track max radius of previous surface to know where to start filling glass between surfaces
-            z_prev = None  # Z value at max radius of previous surface, for filling glass between surfaces
-            for surface in lens.surfaces:
-                r = np.linspace(0, surface.diameter/2, n)
-                z = np.array([surface.sag(ri) for ri in r]) + surface.vertex[2]
-                surf_zprofiles.append(z)
-                ax.plot(z,  r, lw=0.5, color='black', alpha=0.9)
-                ax.plot(z, -r, lw=0.5, color='black', alpha=0.9)
+            r_max_prev     = None
+            z_edge_prev    = None
 
+            for surface in lens.surfaces:
+                r_arr = _np_cpu.linspace(0, surface.diameter / 2, n_pts)
+                # sag may return CuPy array — convert to CPU
+                sag_vals = to_cpu(surface.sag(r_arr)) if BACKEND == 'cupy' else surface.sag(r_arr)
+                z_arr    = _np_cpu.asarray(sag_vals) + float(surface.vertex[2])
+                surf_zprofiles.append(z_arr)
+
+                ax.plot( z_arr,  r_arr, lw=0.5, color='black', alpha=0.9)
+                ax.plot( z_arr, -r_arr, lw=0.5, color='black', alpha=0.9)
+
+                # connect edge of this surface to edge of previous surface (lens rim)
                 if r_max_prev is not None:
-                    ax.plot([z_prev, z[-1]], [r_max_prev, r[-1]], lw=0.5, color='black', alpha=0.9)
-                    ax.plot([z_prev, z[-1]], [-r_max_prev, -r[-1]], lw=0.5, color='black', alpha=0.9)
-                r_max_prev = r[-1]
-                z_prev = z[-1]
+                    ax.plot([z_edge_prev, z_arr[-1]], [ r_max_prev,  r_arr[-1]], lw=0.5, color='black', alpha=0.9)
+                    ax.plot([z_edge_prev, z_arr[-1]], [-r_max_prev, -r_arr[-1]], lw=0.5, color='black', alpha=0.9)
+
+                r_max_prev  = float(r_arr[-1])
+                z_edge_prev = float(z_arr[-1])
 
             # fill glass between surfaces in this lens
             for i in range(1, len(lens.surfaces)):
                 z_prev = surf_zprofiles[i - 1]
                 z_curr = surf_zprofiles[i]
-                ax.fill_betweenx( r, z_prev, z_curr, color='lightblue', alpha=0.8)
-                ax.fill_betweenx(-r, z_prev, z_curr, color='lightblue', alpha=0.8)
-
+                r_fill = _np_cpu.linspace(0, lens.surfaces[i].diameter / 2, n_pts)
+                ax.fill_betweenx( r_fill, z_prev, z_curr, color='lightblue', alpha=0.8)
+                ax.fill_betweenx(-r_fill, z_prev, z_curr, color='lightblue', alpha=0.8)
 
         ax.set_xlim(0, None)
-        ax.set_ylim(-1.25*self.max_r, 1.25*self.max_r)
+        ax.set_ylim(-1.25 * self.max_r, 1.25 * self.max_r)
         ax.set_aspect('equal', adjustable='box')
         ax.set_xlabel('Z')
         ax.set_ylabel('Radius / Y')
-        ax.set_title('Vectorized Ray Propagation with Tracer')
+        ax.set_title('Ray Propagation Cross-Section')
         plt.tight_layout()
         return fig, ax
-   
+
     def show(self):
         plt.show()
 
+
 class NormalPlaneMap:
     """
-    Class for visualizing ray distributions in a plane normal to the optical axis.
+    Visualize ray distributions in a plane normal to the optical axis.
     """
-    def __init__(self, rays: RayGroup, z: float = 0, x_extents: tuple = (-2, 2), y_extents: tuple = (-2, 2), render_type: str = "points", reference_axis: str = "main"):
-        self.rays = rays
-        self.ray_wavelengths = rays.wavelengths if rays.wavelengths is not None else np.full(len(rays), 550.0)  # default to green if no wavelengths
-        self.location = z
-        self.xmin = x_extents[0]
-        self.xmax = x_extents[1]
-        self.ymin = y_extents[0]
-        self.ymax = y_extents[1]
-        self.render_type = render_type # "points" for scatter plot, "heatmap" for density plot
-        self.reference_axis = reference_axis # name of optical axis which plane is normal to; "main" is the default optical axis
+    def __init__(self, rays: RayGroup, z: float = 0,
+                 x_extents: tuple = (-5, 5), y_extents: tuple = (-5, 5),
+                 render_type: str = "points", reference_axis: str = "main"):
+        self.rays            = rays
+        self.ray_wavelengths = to_cpu(rays.wavelengths) if rays.wavelengths is not None \
+                               else _np_cpu.full(len(rays), 550.0)
+        self.location        = z
+        self.xmin            = x_extents[0]
+        self.xmax            = x_extents[1]
+        self.ymin            = y_extents[0]
+        self.ymax            = y_extents[1]
+        self.render_type     = render_type
+        self.reference_axis  = reference_axis
+        self.xy              = None   # set by xy_at_z()
 
     def xy_at_z(self, update_paths=True, require_forward=True, atol=1e-12):
         """
-        Interpolate x,y for each ray at plane z using traced path vertices in self.ray_paths.
-
-        self.ray_paths is assumed to have shape (S, N, 3), where:
-            S = number of path vertices per ray
-            N = number of rays
-
-        For each ray:
-        - If one segment crosses z, interpolate within that segment.
-        - If the path already contains a vertex at z, use that point.
-        - If the path does not reach z, extend the final segment to z and optionally
-        overwrite the final stored point with the extrapolated point.
-
-        Parameters
-        ----------
-        z : float
-            Target z-plane.
-        update_paths : bool, default True
-            If True, overwrite the last point of rays that must be extended to reach z.
-        require_forward : bool, default True
-            If True, only allow interpolation/extrapolation in the forward direction of the
-            segment (segment parameter u >= 0). This is usually what you want.
-        atol : float, default 1e-12
-            Tolerance for detecting dz == 0 or exact z matches.
-
-        Returns
-        -------
-        xy : (N, 2) ndarray
-            Interpolated [x, y] for each ray at z. Invalid rays are NaN.
-        points : (N, 3) ndarray
-            Full interpolated/extrapolated [x, y, z] points.
-        found_mask : (N,) bool
-            True where a valid point at z was found or extrapolated.
+        Interpolate x,y for each ray at plane z using traced path vertices.
+        ray_paths shape: (S, N, 3)
         """
         if self.rays.ray_paths is None:
-                raise ValueError("RayGroup has no ray_paths defined. Run tracing first.")
+            raise ValueError("RayGroup has no ray_paths defined. Run tracing first.")
 
-        paths = np.asarray(self.rays.ray_paths, dtype=float)
+        # Pull to CPU once for the serial interpolation loop
+        paths = _np_cpu.asarray(to_cpu(self.rays.ray_paths), dtype=float)
         if paths.ndim != 3 or paths.shape[2] != 3:
             raise ValueError("ray_paths must have shape (S, N, 3)")
 
-        z = self.location
+        z    = float(self.location)
         S, N, _ = paths.shape
 
-        out_pts = np.full((N, 3), np.nan, dtype=float)
-        found = np.zeros(N, dtype=bool)
+        out_pts = _np_cpu.full((N, 3), _np_cpu.nan, dtype=float)
+        found   = _np_cpu.zeros(N, dtype=bool)
 
         for i in range(N):
-            p = paths[:, i, :]  # (S,3)
-            valid_rows = ~np.isnan(p).any(axis=1)
-            p = p[valid_rows]
+            p           = paths[:, i, :]                        # (S, 3)
+            valid_rows  = ~_np_cpu.isnan(p).any(axis=1)
+            p_valid     = p[valid_rows]
 
-            if len(p) == 0:
+            if len(p_valid) == 0:
                 continue
 
-            z_vals = p[:, 2]
-            exact = np.where(np.isclose(z_vals, z, atol=atol))[0]
+            z_vals = p_valid[:, 2]
+
+            # Check for exact match
+            exact = _np_cpu.where(_np_cpu.isclose(z_vals, z, atol=atol))[0]
             if exact.size > 0:
-                out_pts[i] = p[exact[0]]
-                found[i] = True
+                out_pts[i] = p_valid[exact[0]]
+                found[i]   = True
                 continue
 
+            # Search for bracketing segment
             crossed = False
-            for j in range(len(p) - 1):
-                p0 = p[j]
-                p1 = p[j + 1]
-                z0 = p0[2]
-                z1 = p1[2]
-                dz = z1 - z0
+            for j in range(len(p_valid) - 1):
+                p0, p1 = p_valid[j], p_valid[j + 1]
+                z0, z1 = p0[2], p1[2]
+                dz     = z1 - z0
 
-                if np.isclose(dz, 0.0, atol=atol):
+                if _np_cpu.isclose(dz, 0.0, atol=atol):
                     continue
 
                 if (z - z0) * (z - z1) <= 0:
                     u = (z - z0) / dz
                     if require_forward and u < -atol:
                         continue
-                    pt = p0 + u * (p1 - p0)
+                    pt    = p0 + u * (p1 - p0)
                     pt[2] = z
                     out_pts[i] = pt
-                    found[i] = True
-                    crossed = True
+                    found[i]   = True
+                    crossed    = True
                     break
 
             if crossed:
                 continue
 
-            if len(p) >= 2:
-                p0 = p[-2]
-                p1 = p[-1]
-                dz = p1[2] - p0[2]
-
-                if not np.isclose(dz, 0.0, atol=atol):
+            # Extrapolate from final segment
+            if len(p_valid) >= 2:
+                p0, p1 = p_valid[-2], p_valid[-1]
+                dz     = p1[2] - p0[2]
+                if not _np_cpu.isclose(dz, 0.0, atol=atol):
                     u = (z - p0[2]) / dz
                     if (not require_forward) or (u >= 1.0 - atol):
-                        pt = p0 + u * (p1 - p0)
+                        pt    = p0 + u * (p1 - p0)
                         pt[2] = z
                         out_pts[i] = pt
-                        found[i] = True
+                        found[i]   = True
 
                         if update_paths:
-                            # overwrite final valid stored point in the RayGroup's paths
-                            valid_idx = np.where(valid_rows)[0]
-                            self.rays.ray_paths[valid_idx[-1], i, :] = pt
+                            valid_idx = _np_cpu.where(valid_rows)[0]
+                            pt_gpu = np.asarray(pt)
+                            self.rays.ray_paths[int(valid_idx[-1]), i, :] = pt_gpu
 
-            elif len(p) == 1:
-                continue
+        # print(out_pts[:, :2])
+        # print(found)
 
-        print(out_pts[:, :2])
-        print(found)
-
+        # Store as CPU NumPy — all plotting methods expect CPU
         self.xy = out_pts[:, :2]
 
     def plot(self):
-        # Placeholder for plotting logic
-        x = self.xy[:, 0]
-        y = self.xy[:, 1]
+        """Scatter plot of ray hit positions at the normal plane."""
+        if self.xy is None:
+            raise ValueError("Call xy_at_z() before plot()")
+
+        x      = self.xy[:, 0]   # already CPU from xy_at_z
+        y      = self.xy[:, 1]
+        colors = [wavelength_nm_to_rgb(float(wl)) for wl in self.ray_wavelengths]
 
         plt.figure()
-        colors = [wavelength_nm_to_rgb(wl) for wl in self.ray_wavelengths]
         plt.scatter(x, y, marker='.', s=10, c=colors)
         plt.xlabel("x")
         plt.ylabel("y")
-        # plt.gca().set_aspect('equal', adjustable='box')  # optional, equal scaling
         plt.show()
 
     def histogram(self, bins=10):
-        # Placeholder for histogram logic
-        x = self.xy[:, 0]
+        """2D histogram of ray hit positions at the normal plane."""
+        if self.xy is None:
+            raise ValueError("Call xy_at_z() before histogram()")
+
+        x = self.xy[:, 0]   # already CPU from xy_at_z
         y = self.xy[:, 1]
 
         plt.figure()
-        plt.hist2d(x, y, bins=bins, cmap='viridis', range=[[self.xmin, self.xmax], [self.ymin, self.ymax]])
+        plt.hist2d(x, y, bins=bins, cmap='viridis',
+                   range=[[self.xmin, self.xmax], [self.ymin, self.ymax]])
         plt.xlabel("x")
         plt.ylabel("y")
         plt.colorbar(label='Count in bin')
         plt.show()
 
+
 if __name__ == "__main__":
-    print(wavelength_nm_to_rgb(400))  # Should be violet
+    print(wavelength_nm_to_rgb(400))
+    print(wavelength_nm_to_rgb(550))
+    print(wavelength_nm_to_rgb(700))
