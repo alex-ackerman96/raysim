@@ -1,4 +1,6 @@
-import numpy as np
+# import numpy as np
+# import cupy as cp
+from backend import np, BACKEND
 import matplotlib.pyplot as plt
 from elements.surfaces import AsphericSurface, PlanarSurface, SphericalSurface
 from rays.ray import RayGroup, Ray, IdealLambertianSource3D, IdealLambertianSource2D, TruncatedLambertianSource2D
@@ -165,8 +167,8 @@ class Tracer:
                 hit_mask[i] = True
                 a[i] = best_a
                 b[i] = best_b
-            elif debug:
-                print(f"[bracket miss] ray={i}, t_plane={t_plane[i]:.6f}, best_absF={best_absF:.3e}")
+            # elif debug:
+            #     print(f"[bracket miss] ray={i}, t_plane={t_plane[i]:.6f}, best_absF={best_absF:.3e}")
 
         return hit_mask, a, b
 
@@ -347,10 +349,10 @@ class Tracer:
             )
             ##########################################################################################################3
             # DEBUG: intersection stats
-            print(
-                f"Surface at z={surface.vertex[2]:.3f}: "
-                f"{np.sum(hit_mask_local)} hits out of {o_act.shape[0]} active rays"
-            )
+            # print(
+            #     f"Surface at z={surface.vertex[2]:.3f}: "
+            #     f"{np.sum(hit_mask_local)} hits out of {o_act.shape[0]} active rays"
+            # )
 
             # --- deactivate misses at this surface ---
             miss_idx_global = active_idx[~hit_mask_local]
@@ -374,11 +376,11 @@ class Tracer:
                 # DEBUG: how many actually refract?
                 old_dirs = d_act[hit_mask_local]
                 delta = np.linalg.norm(new_dirs - old_dirs, axis=1)
-                print(
-                    f"    refract_group: {np.sum(delta > 1e-6)} changed, "
-                    f"{np.sum(delta <= 1e-6)} unchanged, "
-                    f"{np.sum(tir)} TIR"
-                )
+                # print(
+                #     f"    refract_group: {np.sum(delta > 1e-6)} changed, "
+                #     f"{np.sum(delta <= 1e-6)} unchanged, "
+                #     f"{np.sum(tir)} TIR"
+                # )
 
                 # keep only non-TIR, finite directions
                 valid_refract = (~tir) & (~np.isnan(new_dirs).any(axis=1))
@@ -452,13 +454,13 @@ class Tracer:
 
         raise TypeError("rays must be Ray, RayGroup, or list[Ray]")
     
-import numpy as np
-import matplotlib.pyplot as plt
+# import numpy as np
+# import matplotlib.pyplot as plt
 
-# assume these are imported from your codebase
-from elements.surfaces import SphericalSurface
-from dataclasses import dataclass
-from typing import List
+# # assume these are imported from your codebase
+# from elements.surfaces import SphericalSurface
+# from dataclasses import dataclass
+# from typing import List
 
 @dataclass
 class Lens:
@@ -537,79 +539,79 @@ def plot_lens_and_rays(lenses, paths, max_r=None):
     return fig, ax
 
 
-if __name__ == '__main__':
+# if __name__ == '__main__':
 
-    lens1 = Lens(surfaces=[
-        AsphericSurface(vertex=[0, 0, 90], radius=30, conic=-1.1, aspheric_coeffs=[0.15e-6, -0.15e-8, -1e-11], n1=1.0, n2=1.5, diameter=50.0),
-        # SphericalSurface(center=[0, 0, 90], radius=60,  n1=1.0, n2=1.5, diameter=50.0),
-        SphericalSurface(center=[0, 0, 105], radius=-100, n1=1.5, n2=1.0, diameter=50.0),
-    ])
+#     lens1 = Lens(surfaces=[
+#         AsphericSurface(vertex=[0, 0, 90], radius=30, conic=-1.1, aspheric_coeffs=[0.15e-6, -0.15e-8, -1e-11], n1=1.0, n2=1.5, diameter=50.0),
+#         # SphericalSurface(center=[0, 0, 90], radius=60,  n1=1.0, n2=1.5, diameter=50.0),
+#         SphericalSurface(center=[0, 0, 105], radius=-100, n1=1.5, n2=1.0, diameter=50.0),
+#     ])
 
-    # Singlet lens 2
-    lens2 = Lens(surfaces=[
-        SphericalSurface(center=[0, 0, 120], radius=40,  n1=1.0, n2=1.5, diameter=45.0),
-        SphericalSurface(center=[0, 0, 140], radius=-40, n1=1.5, n2=1.3, diameter=45.0),
-        SphericalSurface(center=[0, 0, 145], radius=-120, n1=1.3, n2=1.0, diameter=45.0),
-    ])
+#     # Singlet lens 2
+#     lens2 = Lens(surfaces=[
+#         SphericalSurface(center=[0, 0, 120], radius=40,  n1=1.0, n2=1.5, diameter=45.0),
+#         SphericalSurface(center=[0, 0, 140], radius=-40, n1=1.5, n2=1.3, diameter=45.0),
+#         SphericalSurface(center=[0, 0, 145], radius=-120, n1=1.3, n2=1.0, diameter=45.0),
+#     ])
 
-    # Example doublet lens 3 (3 surfaces: air | glass1 | glass2 | air)
-    # lens3 = Lens(surfaces=[
-    #     SphericalSurface(center=[0, 0, 200], radius=30,   n1=1.0,  n2=1.5,  diameter=30.0),
-    #     SphericalSurface(center=[0, 0, 210], radius=-25,  n1=1.5,  n2=1.62, diameter=30.0),
-    #     SphericalSurface(center=[0, 0, 218], radius=-60,  n1=1.62, n2=1.0,  diameter=30.0),
-    # ])
+#     # Example doublet lens 3 (3 surfaces: air | glass1 | glass2 | air)
+#     # lens3 = Lens(surfaces=[
+#     #     SphericalSurface(center=[0, 0, 200], radius=30,   n1=1.0,  n2=1.5,  diameter=30.0),
+#     #     SphericalSurface(center=[0, 0, 210], radius=-25,  n1=1.5,  n2=1.62, diameter=30.0),
+#     #     SphericalSurface(center=[0, 0, 218], radius=-60,  n1=1.62, n2=1.0,  diameter=30.0),
+#     # ])
 
-    rays = [
-        Ray(origin=[0,   0, 0], direction=[0,  0.3, 1]),
-        Ray(origin=[0,   0, 0], direction=[0,  0.0, 1]),
-        Ray(origin=[0,   0, 0], direction=[0, -0.3, 1]),
-        Ray(origin=[0,   5, 0], direction=[0,  0.3, 1]),
-        Ray(origin=[0,   5, 0], direction=[0,  0.0, 1]),
-        Ray(origin=[0,   5, 0], direction=[0, -0.3, 1]),
-        Ray(origin=[0,  -5, 0], direction=[0,  0.3, 1]),
-        Ray(origin=[0,  -5, 0], direction=[0,  0.0, 1]),
-        Ray(origin=[0,  -5, 0], direction=[0, -0.3, 1]),
-        Ray(origin=[0,  15, 0], direction=[0,  0.3, 1]),
-        Ray(origin=[0,  15, 0], direction=[0,  0.0, 1]),
-        Ray(origin=[0,  15, 0], direction=[0, -0.3, 1]),
-    ]
+#     rays = [
+#         Ray(origin=[0,   0, 0], direction=[0,  0.3, 1]),
+#         Ray(origin=[0,   0, 0], direction=[0,  0.0, 1]),
+#         Ray(origin=[0,   0, 0], direction=[0, -0.3, 1]),
+#         Ray(origin=[0,   5, 0], direction=[0,  0.3, 1]),
+#         Ray(origin=[0,   5, 0], direction=[0,  0.0, 1]),
+#         Ray(origin=[0,   5, 0], direction=[0, -0.3, 1]),
+#         Ray(origin=[0,  -5, 0], direction=[0,  0.3, 1]),
+#         Ray(origin=[0,  -5, 0], direction=[0,  0.0, 1]),
+#         Ray(origin=[0,  -5, 0], direction=[0, -0.3, 1]),
+#         Ray(origin=[0,  15, 0], direction=[0,  0.3, 1]),
+#         Ray(origin=[0,  15, 0], direction=[0,  0.0, 1]),
+#         Ray(origin=[0,  15, 0], direction=[0, -0.3, 1]),
+#     ]
 
-    # g = RayGroup(rays)   # after you implement this
-    g = TruncatedLambertianSource2D(origin=[0, 0, 0], num_rays=50, wavelength=500, distribution='deterministic', plane='yz', half_angle_deg=90)
-    tracer = Tracer(t_max=400.0, bracket_samples=1024, refine_iters=15, eps=1e-6)
+#     # g = RayGroup(rays)   # after you implement this
+#     g = TruncatedLambertianSource2D(origin=[0, 0, 0], num_rays=50, wavelength=500, distribution='deterministic', plane='yz', half_angle_deg=90)
+#     tracer = Tracer(t_max=400.0, bracket_samples=1024, refine_iters=15, eps=1e-6)
 
-    i = 10  # ray index you want to inspect
+#     i = 10  # ray index you want to inspect
 
-    origin_i = g.ray_origins[i]
-    direction_i = g.ray_directions[i]
-
-
-    single_ray = Ray(origin=origin_i, direction=direction_i, wavelength=600)
-    single_group = RayGroup(single_ray)
-
-    paths_i, final_origins_i, final_dirs_i = tracer.trace([lens1, lens2], single_group, output_z=200.0)
+#     origin_i = g.ray_origins[i]
+#     direction_i = g.ray_directions[i]
 
 
-    paths, final_origins, final_dirs = tracer.trace([lens1, lens2], g, output_z=200.0)
+#     single_ray = Ray(origin=origin_i, direction=direction_i, wavelength=600)
+#     single_group = RayGroup(single_ray)
 
-    i0 = i  # for example, replace with one of the visually "straight" rays
-    print("PATH for ray", i0)
-    print(paths[:, i0, :])
+#     paths_i, final_origins_i, final_dirs_i = tracer.trace([lens1, lens2], single_group, output_z=200.0)
 
-    # And check whether it was ever considered a hit at each surface:
-    orig0 = g.ray_origins
-    dir0 = g.ray_directions
 
-    # Re-run a single-surface check on the asphere only
-    orig = orig0[[i0]]
-    dir_ = dir0[[i0]]
-    hit_mask, t_hit, hit_points, normals = tracer.intersect_surface_group(
-        lens1.surfaces[0], orig, dir_
-    )
-    print("hit_mask on S1 for ray", i0, ":", hit_mask)
-    print("hit_points S1 for ray", i0, ":", hit_points)
+#     paths, final_origins, final_dirs = tracer.trace([lens1, lens2], g, output_z=200.0)
+
+#     i0 = i  # for example, replace with one of the visually "straight" rays
+#     print("PATH for ray", i0)
+#     print(paths[:, i0, :])
+
+#     # And check whether it was ever considered a hit at each surface:
+#     orig0 = g.ray_origins
+#     dir0 = g.ray_directions
+
+#     # Re-run a single-surface check on the asphere only
+#     orig = orig0[[i0]]
+#     dir_ = dir0[[i0]]
+#     hit_mask, t_hit, hit_points, normals = tracer.intersect_surface_group(
+#         lens1.surfaces[0], orig, dir_
+#     )
+#     print("hit_mask on S1 for ray", i0, ":", hit_mask)
+#     print("hit_points S1 for ray", i0, ":", hit_points)
     
-    # ---- plot result ----
-    fig, ax = plot_lens_and_rays([lens1, lens2], paths, max_r=None)
-    # print(paths)
-    plt.show()
+#     # ---- plot result ----
+#     fig, ax = plot_lens_and_rays([lens1, lens2], paths, max_r=None)
+#     # print(paths)
+#     plt.show()

@@ -1,4 +1,6 @@
-import numpy as np
+# import numpy as np
+from backend import np, BACKEND
+# import cupy as cp
 import warnings
 from typing import Union
 

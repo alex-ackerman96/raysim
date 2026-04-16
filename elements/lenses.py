@@ -1,4 +1,5 @@
-import numpy as np
+# import numpy as np
+from backend import np, BACKEND
 from typing import Union, Optional
 
 # from elements.surfaces import AsphericSurface, PlanarSurface, SphericalSurface

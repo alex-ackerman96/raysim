@@ -1,5 +1,6 @@
 from matplotlib import pyplot as plt
-import numpy as np
+# import numpy as np
+from backend import np, BACKEND
 from typing import Union, List
 from dataclasses import dataclass
 from elements.surfaces import Surface
@@ -130,7 +131,7 @@ class Plotter:
                 color = wavelength_nm_to_rgb(wl)
             else:
                 color = colors[i % len(colors)]
-            ax.plot(z, y, color=color, lw=0.8, alpha=0.9)
+            ax.plot(z, y, color=color, lw=0.8, alpha=0.5)
 
         # ---- draw surfaces ----
         all_surfaces = [s for lens in self.lenses for s in lens.surfaces]
@@ -138,9 +139,12 @@ class Plotter:
             self.max_r = max(s.diameter for s in all_surfaces) / 2.0
 
         n = 4000
-        # r = np.linspace(0, max_r, n)
+
+        # Draw surfaces
         for lens in self.lenses:
             surf_zprofiles = []
+            r_max_prev = None # track max radius of previous surface to know where to start filling glass between surfaces
+            z_prev = None  # Z value at max radius of previous surface, for filling glass between surfaces
             for surface in lens.surfaces:
                 r = np.linspace(0, surface.diameter/2, n)
                 z = np.array([surface.sag(ri) for ri in r]) + surface.vertex[2]
@@ -148,12 +152,20 @@ class Plotter:
                 ax.plot(z,  r, lw=0.5, color='black', alpha=0.9)
                 ax.plot(z, -r, lw=0.5, color='black', alpha=0.9)
 
+                if r_max_prev is not None:
+                    ax.plot([z_prev, z[-1]], [r_max_prev, r[-1]], lw=0.5, color='black', alpha=0.9)
+                    ax.plot([z_prev, z[-1]], [-r_max_prev, -r[-1]], lw=0.5, color='black', alpha=0.9)
+                r_max_prev = r[-1]
+                z_prev = z[-1]
+
             # fill glass between surfaces in this lens
             for i in range(1, len(lens.surfaces)):
                 z_prev = surf_zprofiles[i - 1]
                 z_curr = surf_zprofiles[i]
                 ax.fill_betweenx( r, z_prev, z_curr, color='lightblue', alpha=0.8)
                 ax.fill_betweenx(-r, z_prev, z_curr, color='lightblue', alpha=0.8)
+
+
         ax.set_xlim(0, None)
         ax.set_ylim(-1.25*self.max_r, 1.25*self.max_r)
         ax.set_aspect('equal', adjustable='box')

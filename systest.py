@@ -1,3 +1,11 @@
+import os
+# Point CuPy to the CUDA bin directory so it finds nvrtc.dll
+cuda_bin = r"C:\Program Files\NVIDIA GPU Computing Toolkit\CUDA\v13.2\bin"
+os.add_dll_directory(cuda_bin)
+os.environ["CUDA_PATH"] = r"C:\Program Files\NVIDIA GPU Computing Toolkit\CUDA\v13.2"
+
+from backend import np, BACKEND
+import cupy as cp
 from tracer import Tracer
 from visualization import NormalPlaneMap, Plotter
 from rays.ray import Ray, RayGroup, IdealLambertianSource3D, TruncatedLambertianSource3D, TruncatedLambertianSource2D
@@ -27,26 +35,30 @@ lens2 = Lens(surfaces=[
 ])
 
 
-rays = [
-    Ray(origin=[0,   0, 0], direction=[0,  0.3, 1]),
-    Ray(origin=[0,   0, 0], direction=[0,  0.0, 1]),
-    Ray(origin=[0,   0, 0], direction=[0, -0.3, 1]),
-    Ray(origin=[0,   5, 0], direction=[0,  0.3, 1]),
-    Ray(origin=[0,   5, 0], direction=[0,  0.0, 1]),
-    Ray(origin=[0,   5, 0], direction=[0, -0.3, 1]),
-    Ray(origin=[0,  -5, 0], direction=[0,  0.3, 1]),
-    Ray(origin=[0,  -5, 0], direction=[0,  0.0, 1]),
-    Ray(origin=[0,  -5, 0], direction=[0, -0.3, 1]),
-    Ray(origin=[0,  15, 0], direction=[0,  0.3, 1]),
-    Ray(origin=[0,  15, 0], direction=[0,  0.0, 1]),
-    Ray(origin=[0,  15, 0], direction=[0, -0.3, 1]),
-    Ray(origin=[-15, -15, 0], direction=[0,  0.3, 1]),
-    Ray(origin=[-15, -15, 0], direction=[0,  0.0, 1]),
-    Ray(origin=[-15, -15, 0], direction=[0, -0.3, 1]),
-]
+# rays = [
+#     Ray(origin=[0,   0, 0], direction=[0,  0.3, 1]),
+#     Ray(origin=[0,   0, 0], direction=[0,  0.0, 1]),
+#     Ray(origin=[0,   0, 0], direction=[0, -0.3, 1]),
+#     Ray(origin=[0,   5, 0], direction=[0,  0.3, 1]),
+#     Ray(origin=[0,   5, 0], direction=[0,  0.0, 1]),
+#     Ray(origin=[0,   5, 0], direction=[0, -0.3, 1]),
+#     Ray(origin=[0,  -5, 0], direction=[0,  0.3, 1]),
+#     Ray(origin=[0,  -5, 0], direction=[0,  0.0, 1]),
+#     Ray(origin=[0,  -5, 0], direction=[0, -0.3, 1]),
+#     Ray(origin=[0,  15, 0], direction=[0,  0.3, 1]),
+#     Ray(origin=[0,  15, 0], direction=[0,  0.0, 1]),
+#     Ray(origin=[0,  15, 0], direction=[0, -0.3, 1]),
+#     Ray(origin=[-15, -15, 0], direction=[0,  0.3, 1]),
+#     Ray(origin=[-15, -15, 0], direction=[0,  0.0, 1]),
+#     Ray(origin=[-15, -15, 0], direction=[0, -0.3, 1]),
+# ]
 
 # g = RayGroup(rays)   # after you implement this
-g = TruncatedLambertianSource3D(origin=[0, 0, 0], num_rays=1000, wavelength=470, distribution='deterministic', half_angle_deg=12)
+print("Backend:", BACKEND)
+print("CuPy available:", cp.is_available())
+print("GPU count:", cp.cuda.runtime.getDeviceCount())
+print("Device:", cp.cuda.Device().use())
+g = TruncatedLambertianSource2D(origin=[0, 0, 0], num_rays=1000, wavelength=470, distribution='deterministic', half_angle_deg=12, plane='yz')
 tracer = Tracer()
 paths, final_origins, final_dirs = tracer.trace([lens1, lens2], g)
 
