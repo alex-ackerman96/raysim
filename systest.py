@@ -58,7 +58,7 @@ print("Backend:", BACKEND)
 print("CuPy available:", cp.is_available())
 print("GPU count:", cp.cuda.runtime.getDeviceCount())
 print("Device:", cp.cuda.Device().use())
-g = TruncatedLambertianSource3D(origin=[0, 0, 0], num_rays=300000, wavelength=470, distribution='random', half_angle_deg=12)
+g = TruncatedLambertianSource3D(origin=[0, 0, 0], num_rays=1000, wavelength=470, distribution='random', half_angle_deg=12)
 tracer = Tracer()
 paths, final_origins, final_dirs = tracer.trace([lens1, lens2], g)
 
@@ -67,7 +67,7 @@ plane_map.xy_at_z()
 # plane_map.plot()
 plane_map.histogram(bins=100)
 
-# p = Plotter(rays=g, elements=[lens1, lens2])
-#     # ---- plot result ----
-# fig, ax = p.plot_cross_section()
-# p.show()
+p = Plotter(rays=g, elements=[lens1, lens2])
+    # ---- plot result ----
+fig, ax = p.plot_cross_section()
+p.show()

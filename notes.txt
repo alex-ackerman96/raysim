@@ -1,0 +1,2 @@
+$env:RAYSIM_BACKEND="cupy"
+python systest.py
